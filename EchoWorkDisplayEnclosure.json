@@ -1,0 +1,16 @@
+{
+    "fileFormatVersion": "1",
+    "parameterSets": {
+        "New set 1": {
+            "$fs": "0.5",
+            "display_pcbDimensions": "[52, 35, 1]",
+            "headerPinPitch": "2.54",
+            "headerRowPitch": "17.780000000000001",
+            "mountHoleShortEdgeDistance": "2",
+            "pcbDimensions": "[51, 21, 1]",
+            "render_case": "true",
+            "render_pi": "true",
+            "render_screen": "true"
+        }
+    }
+}
