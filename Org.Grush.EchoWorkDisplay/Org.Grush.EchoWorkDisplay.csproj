@@ -10,10 +10,13 @@
         <PublishAot>true</PublishAot>
         <InvariantGlobalization>true</InvariantGlobalization>
         <WarningsAsErrors>true</WarningsAsErrors>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks> <!-- TODO -->
     </PropertyGroup>
 
     <ItemGroup>
+      <PackageReference Include="SkiaSharp" Version="3.119.1" />
       <PackageReference Include="System.IO.Ports" Version="10.0.2" />
+      <PackageReference Include="System.Management" Version="10.0.2" />
     </ItemGroup>
 
 </Project>

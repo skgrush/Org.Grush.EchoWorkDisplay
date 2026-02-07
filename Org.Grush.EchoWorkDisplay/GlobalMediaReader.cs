@@ -9,9 +9,23 @@ public sealed class GlobalMediaReader : IAsyncDisposable
     private readonly GlobalSystemMediaTransportControlsSessionManager _sessionManager;
     
     private GlobalSystemMediaTransportControlsSession? CurrentSession { get; set; }
-    private MediaPropertiesProxy? CurrentMedia { get; set; }
-    
+
+    private MediaPropertiesProxy? CurrentMedia
+    {
+        get;
+        set
+        {
+            if (field == value)
+                return;
+            
+            field = value;
+            MediaPropertiesChanged?.Invoke(this, value);
+        }
+    }
+
     public IMediaPropertiesProxy? CurrentMediaProperties => CurrentMedia;
+
+    public event EventHandler<IMediaPropertiesProxy?>? MediaPropertiesChanged; 
 
     private GlobalMediaReader(GlobalSystemMediaTransportControlsSessionManager sessionManager)
     {
@@ -25,7 +39,6 @@ public sealed class GlobalMediaReader : IAsyncDisposable
     {
         if (CurrentSession is not null)
         {
-            CurrentSession.MediaPropertiesChanged -= UpdateMediaProperties;
             CurrentMedia?.Dispose();
             CurrentMedia = null;
         }
@@ -68,10 +81,9 @@ public sealed class GlobalMediaReader : IAsyncDisposable
             CurrentMedia = null;
         }
 
-        if (CurrentMedia is null)
-        {
-            // TODO
-        }
+        // if (CurrentMedia is null)
+        // {
+        // }
     }
 
     public static async Task<GlobalMediaReader> InitAsync()
