@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.IO.Ports;
 using System.Reflection;
@@ -124,7 +125,7 @@ public sealed class Port : IAsyncDisposable
                 byte[] msg = new byte[size - 1];
                 Encoding.UTF8.GetBytes(
                     bytes: msg.AsSpan(0, sizeof_typeOfTransmission),
-                    chars: messageBinary.TypeOfTransmission.PadRight(sizeof_typeOfTransmission, '\0')
+                    chars: messageBinary.TypeOfTransmission
                 );
                 msg[sizeof_typeOfTransmission] = 0;
                 
@@ -285,9 +286,27 @@ public sealed class Port : IAsyncDisposable
         }
     }
 
-    public record RawMessageBinary(uint MessageId, int MessageSize, int BodySize, string TypeOfTransmission, ReadOnlyMemory<byte> Bytes) : RawMessage(MessageId, MessageSize)
+    public record RawMessageBinary(uint MessageId, int MessageSize, int BodySize, [Length(0, 32)] string TypeOfTransmission, ReadOnlyMemory<byte> Bytes) : RawMessage(MessageId, MessageSize)
     {
         public const char ControlCharStart = ControlBytes.ShiftOut;
+
+        public static RawMessageBinary FromBytes(string typeOfTransmission, ReadOnlyMemory<byte> bytes)
+        {
+            int bodySize = bytes.Length;
+            int messageSize = 32 + 1 + bodySize + 1;
+
+            byte[] typeOfTransmissionBytes = new byte[32];
+
+            Encoding.UTF8.GetBytes(typeOfTransmission, typeOfTransmissionBytes);
+            
+            return new(
+                MessageId: ++IncrementalSenderMessageId,
+                MessageSize: messageSize,
+                BodySize: bodySize,
+                TypeOfTransmission: typeOfTransmission,
+                Bytes: bytes
+            );
+        }
     }
 
     public record RawMessageAck(uint MessageId, int MessageSize, ReadOnlyMemory<byte> Bytes) : RawMessageText(MessageId, MessageSize, Bytes)

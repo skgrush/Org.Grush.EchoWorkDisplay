@@ -1,11 +1,14 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
 using Org.Grush.EchoWorkDisplay;
+using SkiaSharp;
 
 // await using var mediaManager = await GlobalMediaReader.InitAsync();
 
 Config config = Config.Deserialize(new FileInfo("./config.json"))
     ?? new();
+
+ScreenRenderer screenRenderer = new(config);
 
 await using var commWriter = new StatusCommWriter(Console.WriteLine, config);
 await commWriter.WaitForPortRefreshAsync(CancellationToken.None);
@@ -37,22 +40,10 @@ universal.SessionsChanged += async (sender, list) =>
         await commWriter.WriteToPortAsync(new PiPicoMessages.NoMediaMessage().ToRawMessage(), cancellationToken);
         return;
     }
-    
-    var media = chosenSession.MediaProperties;
-    var thumb = media.Thumbnail;
-    
-    var e = new PiPicoMessages.MediaMetadataChanged(media.Artist, media.Title, ResetMediaImage: true);
-    await commWriter.WriteToPortAsync(e.ToRawMessage(), cancellationToken);
 
-    using var t = await thumb.OpenReadAsync();
-    if (t.Size < 16 || !t.CanRead)
-        return;
-
-    var image = SkiaSharp.SKImage.FromEncodedData(t.AsStreamForRead());
-    cancellationToken.ThrowIfCancellationRequested();
-
-    new SkiaSharp.SKBitmap()
-
+    using var screenBitmap = await screenRenderer.RenderMediaScreen(chosenSession.MediaProperties, config.ScreenHardwareWidth, config.ScreenHardwareHeight, cancellationToken);
+    var bitmapMessage = new PiPicoMessages.DrawBitmap(screenBitmap, SKPointI.Empty);
+    await commWriter.WriteToPortAsync(bitmapMessage.ToRawMessage(), cancellationToken);
 };
 
 await universal.Go();
