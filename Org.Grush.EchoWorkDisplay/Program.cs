@@ -15,11 +15,11 @@ await commWriter.WaitForPortRefreshAsync(CancellationToken.None);
 
 await using var universal = new UniversalMediaReader();
 
-CancellationTokenSource cancellation = new();
+CancellationTokenSource perSessionCancellation = new();
 universal.SessionsChanged += async (sender, list) =>
 {
-    (var previousCancellation, cancellation) = (cancellation, new CancellationTokenSource());
-    var cancellationToken = cancellation.Token;
+    (var previousCancellation, perSessionCancellation) = (perSessionCancellation, new CancellationTokenSource());
+    var cancellationToken = perSessionCancellation.Token;
     await previousCancellation.CancelAsync();
     previousCancellation.Dispose();
     

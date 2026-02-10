@@ -11,7 +11,9 @@ public record Config(
     int ScreenHardwareHeight = 240,
     int MarginSize = 5,
     float FontSize = 24,
-    string FontFamilies = "Arial, Arial Regular, Courier New, Courier New Regular"
+    string FontFamilies = "Arial, Arial Regular, Courier New, Courier New Regular",
+    string AzTenantId = "common",
+    string AzClientId = "" // TODO
 )
 {
     public bool _FeasibleToDrawThumbnail =>
