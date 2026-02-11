@@ -1,9 +1,14 @@
+using System.Collections.Immutable;
+using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using Windows.Media.Control;
+using SkiaSharp;
 
 namespace Org.Grush.EchoWorkDisplay;
 
 public record Config(
-    int BaudRate = 115200,
+    int BaudRate = 115_200,
     int ComPortSearchDelayMilliseconds = 1_000,
     int MaxThumbnailWidth = 120,
     int MaxThumbnailHeight = 120,
@@ -12,15 +17,86 @@ public record Config(
     int MarginSize = 5,
     float FontSize = 24,
     string FontFamilies = "Arial, Arial Regular, Courier New, Courier New Regular",
+    string BackgroundColor = "#000000",
+    string FontColor = "#FFFFFF",
+    bool ShowPlayingMedia = true,
     string AzTenantId = "common",
-    string AzClientId = "" // TODO
+    string AzClientId = "", // TODO
+    int AzRefreshPeriodMilliseconds = 10_000,
+    ReadOnlyDictionary<string, float>? StatusPriority = null
 )
 {
-    public bool _FeasibleToDrawThumbnail =>
+    public static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(1);
+    
+    internal bool _FeasibleToDrawThumbnail =>
         this is { MaxThumbnailHeight: > 20, MaxThumbnailWidth: > 20 };
 
-    public bool _FeasibleToDrawText =>
+    internal bool _FeasibleToDrawText =>
         this is { FontSize: > 5 };
+    
+    internal SKColor _BackgroundColor =>
+        SKColor.TryParse(BackgroundColor, out var color) ? color : SKColors.Black;
+    internal SKColor _TextColor =>
+        SKColor.TryParse(FontColor, out var color) ? color : SKColors.White;
+
+    internal float GetPriority(MicrosoftPresenceService.Availability availability)
+    {
+        string availStr = availability.ToString();
+        if (StatusPriority is not null && StatusPriority.TryGetValue(availStr, out var priority))
+            return priority;
+
+        if (DefaultStatusPriority.TryGetValue(availStr, out priority))
+            return priority;
+        
+        return (float)MicrosoftPresenceService.Availability.PresenceUnknown;
+    }
+
+    internal float GetPriority(GlobalSystemMediaTransportControlsSessionMediaProperties? mediaProperties)
+    {
+        if (mediaProperties is not null)
+        {
+            string mediaString = string.Join(", ", new[]
+            {
+                mediaProperties.Artist,
+                mediaProperties.AlbumTitle,
+                mediaProperties.Title
+            });
+
+            foreach (var (pattern, priority) in _EffectiveMusicPriorities)
+            {
+                if (pattern.IsMatch(mediaString))
+                    return priority;
+            }
+        }
+        
+        return _EffectiveMusicPriorities.First(pair => pair.Pattern.ToString() is ".*" or "").Priority;
+    }
+
+    private readonly ImmutableArray<(Regex Pattern, float Priority)> _EffectiveMusicPriorities =
+        [
+            ..DefaultStatusPriority
+                .Concat(StatusPriority ?? ReadOnlyDictionary<string, float>.Empty)
+                .DistinctBy(pair => pair.Key)
+                .SelectMany(pair =>
+                {
+                    (string key, float priority) = pair;
+                    if (!key.StartsWith("music:", StringComparison.OrdinalIgnoreCase))
+                        return Enumerable.Empty<(Regex, float)>();
+
+                    string patternStr = key["music:".Length..];
+
+                    return
+                    [
+                        (new Regex(patternStr, RegexOptions.IgnoreCase, RegexTimeout), priority)
+                    ];
+                })
+        ];
+    
+    internal static readonly ImmutableDictionary<string, float> DefaultStatusPriority =
+        Enum.GetValues<MicrosoftPresenceService.Availability>()
+            .Select(e => KeyValuePair.Create(e.ToString(), (float)e))
+            .Append(KeyValuePair.Create("Music:.*", (float)MicrosoftPresenceService.Availability.Busy - 0.5f))
+            .ToImmutableDictionary();
     
     public static Config Deserialize(Stream stream)
         => JsonSerializer.Deserialize(stream, LocalJsonSerializerContext.Default.Config)!;

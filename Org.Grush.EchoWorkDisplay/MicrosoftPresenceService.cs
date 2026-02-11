@@ -4,6 +4,7 @@ using System.Text;
 using Azure.Identity;
 using Azure.Identity.Broker;
 using Microsoft.Graph;
+using Microsoft.Graph.Models;
 
 namespace Org.Grush.EchoWorkDisplay;
 
@@ -11,16 +12,16 @@ public partial class MicrosoftPresenceService(Config config, HashAlgorithm secur
 {
     public enum Availability
     {
-        Available,
-        Away,
-        BeRightBack,
-        Busy,
+        Presenting,
         DoNotDisturb,
         Focusing,
         InACall,
         InAMeeting,
+        Busy,
         Offline,
-        Presenting,
+        BeRightBack,
+        Away,
+        Available,
         PresenceUnknown
     }
     
@@ -29,6 +30,7 @@ public partial class MicrosoftPresenceService(Config config, HashAlgorithm secur
         string? Error = null,
         string? SequenceNumber = null,
         string? OutOfOfficeMessage = null,
+        string? StatusMessage = null,
         Availability? Availability = null
     )
     {
@@ -44,6 +46,9 @@ public partial class MicrosoftPresenceService(Config config, HashAlgorithm secur
                 OutOfOfficeMessage: presence.OutOfOfficeSettings is { IsOutOfOffice: true }
                     ? presence.OutOfOfficeSettings?.Message ?? DefaultOutOfOfficeMessage
                     : null,
+                StatusMessage: presence.StatusMessage?.Message is { ContentType: BodyType.Text, Content: {} content }
+                    ? content
+                    : null,
                 Availability: ParseAvailability(presence.Availability)
             );
 
@@ -58,13 +63,49 @@ public partial class MicrosoftPresenceService(Config config, HashAlgorithm secur
         }
     }
 
-    private PresenceDescription Presence { get; set; } = PresenceDescription.FromError("Not initialized");
+    private PresenceDescription Presence
+    {
+        get;
+        set
+        {
+            PresenceChanged?.Invoke(this, value);
+            field = value;
+        }
+    } = PresenceDescription.FromError("Not initialized");
     
-    public EventHandler<PresenceDescription>? PresenceChanged;
+    public event EventHandler<PresenceDescription>? PresenceChanged;
     
     private (GraphServiceClient Client, string CredentialsHash)? GraphClient { get; set; }
 
-    public readonly IEnumerable<string> GraphScopes = ["Presence.Read"]; 
+    public readonly IEnumerable<string> GraphScopes = ["Presence.Read"];
+
+    public async void LoopAsync(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            try
+            {
+                // TODO: re-read config
+                await CheckPresenceAsync(cancellationToken);
+
+                await Task.Delay(
+                    Presence.Error is null
+                        ? config.AzRefreshPeriodMilliseconds
+                        : 10 * config.AzRefreshPeriodMilliseconds,
+                    cancellationToken
+                );
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Error looping presence: {0}", e);
+                await Task.Delay(10 * config.AzRefreshPeriodMilliseconds, cancellationToken);
+            }
+        }
+    }
 
     public async Task CheckPresenceAsync(CancellationToken cancellationToken)
     {
@@ -80,7 +121,7 @@ public partial class MicrosoftPresenceService(Config config, HashAlgorithm secur
             }
             client = c;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not TaskCanceledException)
         {
             Presence = PresenceDescription.FromError($"Not authenticated: {e}");
             return;
@@ -101,7 +142,7 @@ public partial class MicrosoftPresenceService(Config config, HashAlgorithm secur
             Presence = PresenceDescription.FromPresence(presenceDto);
             return;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is not TaskCanceledException)
         {
             Presence = PresenceDescription.FromError($"API failure: {e}");
             return;

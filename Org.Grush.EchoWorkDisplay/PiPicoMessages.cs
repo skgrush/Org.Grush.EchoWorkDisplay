@@ -2,12 +2,18 @@ using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Text;
 using System.Text.Json.Serialization;
+using Windows.Media.Control;
 using SkiaSharp;
 
 namespace Org.Grush.EchoWorkDisplay;
 
 public static class PiPicoMessages
 {
+    public interface IMediaMessage : IDisposable
+    {
+        public abstract Port.RawMessage ToRawMessage();
+    }
+    
     [JsonPolymorphic(TypeDiscriminatorPropertyName = "$MessageType")]
     [JsonDerivedType(typeof(NoMediaMessage), nameof(NoMediaMessage))]
     // [JsonDerivedType(typeof(MediaMetadataChanged), nameof(MediaMetadataChanged))]
@@ -19,10 +25,10 @@ public static class PiPicoMessages
         public abstract Port.RawMessage ToRawMessage();
     }
 
-    public sealed record DrawBitmap(
+    public record DrawBitmap(
         SkiaSharp.SKBitmap Bitmap,
         SkiaSharp.SKPointI Position
-    )
+    ) : IDisposable
     {
         public string TypeOfTransmission => "bitmap?version=1";
 
@@ -67,7 +73,7 @@ public static class PiPicoMessages
             return header;
         }
 
-        public Port.RawMessageBinary ToRawMessage()
+        public Port.RawMessage ToRawMessage()
         {
             byte[] body = new byte[32 + Bitmap.ByteCount];
             
@@ -76,26 +82,42 @@ public static class PiPicoMessages
             
             return Port.RawMessageBinary.FromBytes(TypeOfTransmission, body);
         }
+
+        public void Dispose()
+        {
+            Bitmap.Dispose();
+        }
     }
 
-    // public sealed record MediaMetadataChanged(
-    //     string Artist,
-    //     string Title,
-    //     bool ResetMediaImage = true
-    // ) : Base
-    // {
-    //     public override string MessageType => nameof(MediaMetadataChanged);
-    //
-    //     public override Port.RawMessage ToRawMessage()
-    //         => Port.RawMessageJson.FromJson(this, LocalJsonSerializerContext.Default.MediaMetadataChanged);
-    // }
-
         
-    public sealed record NoMediaMessage() : JsonBase
+    public sealed record NoMediaMessage() : JsonBase, IMediaMessage
     {
         public override string MessageType => nameof(NoMediaMessage);
 
         public override Port.RawMessageJson ToRawMessage()
             => Port.RawMessageJson.FromJson(this, LocalJsonSerializerContext.Default.NoMediaMessage);
+
+        public void Dispose()
+        {
+        }
+    }
+
+    public record DrawMediaBitmap(
+        SkiaSharp.SKBitmap Bitmap,
+        SkiaSharp.SKPointI Position,
+        [property:JsonIgnore]
+        GlobalSystemMediaTransportControlsSessionMediaProperties? MediaProperties = null
+    ) : DrawBitmap(Bitmap, Position), IMediaMessage
+    {
+        
+    }
+
+    public sealed record DrawPresenceBitmap(
+        SkiaSharp.SKBitmap Bitmap,
+        SkiaSharp.SKPointI Position,
+        MicrosoftPresenceService.PresenceDescription Description
+    ) : DrawBitmap(Bitmap, Position), IMediaMessage
+    {
+        
     }
 }

@@ -20,6 +20,13 @@ public class ScreenRenderer(Config config)
     private static readonly ConcurrentDictionary<string, SKTypeface?> KnownFontFamilies = [];
     private static readonly ConcurrentDictionary<string, string> ResolvedCommaSeparatedFontFamilies = [];
 
+    private readonly IconDrawer _iconDrawer = new(
+        thumbSize: config._FeasibleToDrawThumbnail
+            ? Math.Min(config.MaxThumbnailHeight, config.MaxThumbnailWidth)
+            : 100
+    );
+
+
     private static SKTypeface FindFontFamily(string commaSeparatedFontFamilies)
     {
         if (ResolvedCommaSeparatedFontFamilies.TryGetValue(commaSeparatedFontFamilies, out var foundPreresolved))
@@ -61,6 +68,78 @@ public class ScreenRenderer(Config config)
         ResolvedCommaSeparatedFontFamilies[commaSeparatedFontFamilies] = defaultName;
         return SKTypeface.Default;
     }
+
+    [MustDisposeResource]
+    public async Task<SKBitmap?> RenderPresenceScreen(
+        MicrosoftPresenceService.PresenceDescription presenceDescription,
+        int width,
+        int height,
+        CancellationToken cancellationToken
+    )
+    {
+        
+        SKColor backgroundColor = config._BackgroundColor;
+        SKColor textColor = config._TextColor;
+        SKColor? textStrokeColor;
+        
+        SKBitmap? thumbnail = _iconDrawer.GetIcon(presenceDescription.Availability);
+
+        if (thumbnail is null)
+            return null;
+        
+        var screenBitmap = new SKBitmap(width, height, SKColorType.Rgb565, SKAlphaType.Opaque);
+        using var screenCanvas = new SKCanvas(screenBitmap);
+        
+        screenCanvas.Clear(backgroundColor);
+        screenCanvas.Flush();
+        
+        screenCanvas.DrawBitmap(thumbnail, new SKPoint(config.MarginSize, config.MarginSize));
+
+        if (_iconDrawer.ThumbSize * 2 <= config.ScreenHardwareHeight)
+        {
+            SKRectI statusRectangle = new(
+                left: (int)(2 * config.MarginSize + _iconDrawer.ThumbSize),
+                top: config.MarginSize,
+                right: config.MarginSize,
+                bottom: config.MarginSize + (int)_iconDrawer.ThumbSize
+            );
+            var status = _iconDrawer.GetAvailabilityName(presenceDescription.Availability!.Value);
+            
+            SKTypeface typeface = FindFontFamily(config.FontFamilies);
+            using SKPaint mediaTextPaint = new()
+            {
+                Color = textColor,
+            };
+            await DrawTextLinesCentered(
+                screenCanvas,
+                status,
+                mediaTextPaint,
+                typeface,
+                statusRectangle,
+                bold: true
+            );
+
+            string? subtextMessage =
+                presenceDescription.OutOfOfficeMessage
+                    ?? presenceDescription.StatusMessage
+                ;
+            
+            if (subtextMessage is not null)
+            {
+                SKRectI bottomRectangle = new(
+                    left: config.MarginSize,
+                    top: statusRectangle.Left,
+                    right: config.MarginSize,
+                    bottom: config.MarginSize
+                );
+
+                await DrawTextLinesCentered(screenCanvas, subtextMessage, mediaTextPaint, typeface, bottomRectangle);
+            }
+        }
+
+        screenCanvas.Flush();
+        return screenBitmap;
+    }
     
     [MustDisposeResource]
     public async Task<SKBitmap> RenderMediaScreen(
@@ -70,8 +149,8 @@ public class ScreenRenderer(Config config)
         CancellationToken cancellationToken
     )
     {
-        SKColor backgroundColor = SKColors.White;
-        SKColor textColor = SKColors.Black;
+        SKColor backgroundColor = config._BackgroundColor;
+        SKColor textColor = config._TextColor;
         SKColor? textStrokeColor;
         
         var screenBitmap = new SKBitmap(width, height, SKColorType.Rgb565, SKAlphaType.Opaque);
@@ -129,10 +208,10 @@ public class ScreenRenderer(Config config)
             mediaTextPaint.Color = textColor;
             
             // draw artist name
-            await DrawText(screenCanvas, mediaProperties.Artist, mediaTextPaint, typeface, artistRectangle, bold: true);
+            await DrawTextLinesCentered(screenCanvas, mediaProperties.Artist, mediaTextPaint, typeface, artistRectangle, bold: true);
 
             // draw media title
-            await DrawText(screenCanvas, mediaProperties.Artist, mediaTextPaint, typeface, titleRectangle, italic: true);
+            await DrawTextLinesCentered(screenCanvas, mediaProperties.Artist, mediaTextPaint, typeface, titleRectangle, italic: true);
         }
         
         screenCanvas.Flush();
@@ -140,7 +219,7 @@ public class ScreenRenderer(Config config)
         return screenBitmap;
     }
 
-    private async Task<bool> DrawText(
+    private async Task<bool> DrawTextLinesCentered(
         SKCanvas canvas,
         string text,
         SKPaint textPaint,
@@ -357,6 +436,192 @@ public class ScreenRenderer(Config config)
         
         return SKImage.FromEncodedData(buffer.AsStream());
     }
+}
+
+public class IconDrawer
+{
+    private static readonly Dictionary<MicrosoftPresenceService.Availability, string> _nameCache = [];
+    
+    private readonly SKPoint _center;
+    private readonly float _lineWidth;
+    private readonly SKPaint _linePaint;
+    
+    public readonly Lazy<SKBitmap> Available;
+    public readonly Lazy<SKBitmap> Away;
+    public readonly Lazy<SKBitmap> Busy;
+    public readonly Lazy<SKBitmap> DoNotDisturb;
+    public readonly Lazy<SKBitmap> Offline;
+
+    public readonly float ThumbSize;
+
+    public IconDrawer(float thumbSize)
+    {
+        float _20 = thumbSize * 0.20f;
+        float _35 = thumbSize * 0.35f;
+        float _45 = thumbSize * 0.45f;
+        float _50 = thumbSize * 0.5f;
+        float _55 = thumbSize - _45;
+        float _65 = thumbSize - _35;
+        float _70 = thumbSize * 0.70f;
+        float _80 = thumbSize - _20;
+
+        float _1_3 = thumbSize / 3f;
+        float _2_3 = 2 * _1_3;
+
+        ThumbSize = thumbSize;
+        
+        _center = new SKPoint(_50, _50);
+        _lineWidth = thumbSize * 0.1f;
+        _linePaint = new()
+        {
+            Color = SKColors.White,
+            StrokeWidth = _lineWidth,
+            IsStroke = true,
+            StrokeJoin = SKStrokeJoin.Miter,
+            StrokeCap = SKStrokeCap.Butt,
+        };
+        
+        Available = new(() =>
+        {
+            SKBitmap availableBitmap = new((int)thumbSize, (int)thumbSize);
+            using SKCanvas canvas = new(availableBitmap);
+            
+            DrawFullCircle(canvas, new(0, 0xFF, 0));
+
+            using SKPath checkPath = new();
+            checkPath.MoveTo(_65, _45);
+            checkPath.LineTo(_55, _65);
+            checkPath.LineTo(_35, _35);
+            
+            canvas.DrawPath(
+                checkPath,
+                _linePaint
+            );
+            
+            canvas.Flush();
+            return availableBitmap;
+        });
+
+        Away = new(() =>
+        {
+            SKBitmap awayBitmap = new((int)thumbSize, (int)thumbSize);
+            using SKCanvas canvas = new(awayBitmap);
+
+            DrawFullCircle(canvas, new(0xF8, 0xD6, 0x21));
+            
+            using SKPath clockPath = new();
+            clockPath.MoveTo(_45, _20);
+            clockPath.LineTo(_45, _55);
+            clockPath.LineTo(_70, _70);
+            
+            canvas.DrawPath(
+                clockPath,
+                _linePaint
+            );
+            
+            canvas.Flush();
+            return awayBitmap;
+        });
+
+        Busy = new(() =>
+        {
+            SKBitmap busyBitmap = new((int)thumbSize, (int)thumbSize);
+            using SKCanvas canvas = new(busyBitmap);
+
+            DrawFullCircle(canvas, new(0xFF, 0, 0));
+            
+            canvas.Flush();
+            return busyBitmap;
+        });
+
+        DoNotDisturb = new(() =>
+        {
+            SKBitmap dndBitmap = new((int)thumbSize, (int)thumbSize);
+            using SKCanvas canvas = new(dndBitmap);
+
+            DrawFullCircle(canvas, new(0xFF, 0, 0));
+
+            canvas.DrawLine(
+                new(_20, _50),
+                new(_80, _50),
+                _linePaint
+            );
+
+            canvas.Flush();
+            return dndBitmap;
+        });
+        
+        
+        Offline = new(() =>
+        {
+            SKBitmap dndBitmap = new((int)thumbSize, (int)thumbSize);
+            using SKCanvas canvas = new(dndBitmap);
+            
+            canvas.DrawCircle(
+                c: _center,
+                radius: _center.X - (_lineWidth / 2),
+                paint: _linePaint
+            );
+
+            canvas.DrawLine(
+                new(_1_3, _1_3),
+                new(_2_3, _2_3),
+                _linePaint
+            );
+            canvas.DrawLine(
+                new(_1_3, _2_3),
+                new(_2_3, _1_3),
+                _linePaint
+            );
+
+            canvas.Flush();
+            return dndBitmap;
+        });
+    }
+    
+    public SKBitmap? GetIcon(MicrosoftPresenceService.Availability? availability)
+        => availability switch
+        {
+            MicrosoftPresenceService.Availability.Available
+                => Available.Value,
+            MicrosoftPresenceService.Availability.Away or
+            MicrosoftPresenceService.Availability.BeRightBack
+                => Away.Value,
+            MicrosoftPresenceService.Availability.Busy or
+            MicrosoftPresenceService.Availability.InAMeeting or
+            MicrosoftPresenceService.Availability.InACall
+                => Busy.Value,
+            MicrosoftPresenceService.Availability.DoNotDisturb or
+            MicrosoftPresenceService.Availability.Presenting or
+            MicrosoftPresenceService.Availability.Focusing
+                => DoNotDisturb.Value,
+            MicrosoftPresenceService.Availability.Offline
+                => Offline.Value,
+            _ 
+                => null,
+        };
+
+    public string GetAvailabilityName(MicrosoftPresenceService.Availability availability)
+    {
+        if (_nameCache.TryGetValue(availability, out var name))
+            return name;
+
+        var pascalName = availability.ToString();
+        if (!Enum.IsDefined(availability))
+        {
+            _nameCache.Add(availability, pascalName);
+            return pascalName;
+        }
+
+        name = _pascalReplacer.Replace(pascalName, match => $" {match.Value}");
+        _nameCache.Add(availability, name);
+        return name;
+    }
+
+    private readonly Regex _pascalReplacer = new("(?<=[a-z])([A-Z])");
+
+    private void DrawFullCircle(SKCanvas canvas, SKColor color)
+        => canvas.DrawCircle(_center, _center.X, new SKPaint { Color = color, IsStroke = false });
 }
 
 internal static class CharExtensions
