@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO.Ports;
 using System.Reflection;
@@ -17,6 +18,7 @@ public static class ControlBytes
     public const char EndOfTransmission = '\u0004';
     public const char Enquiry = '\u0005';
     public const char Acknowledge = '\u0006';
+    public const char Error = '\u0007';
     public const char ShiftOut = '\u000E';
     public const char ShiftIn = '\u000F';
     public const char Cancel = '\u0018';
@@ -57,7 +59,7 @@ public sealed class Port : IAsyncDisposable
         }
     }
 
-    private async IAsyncEnumerable<RawMessage> ReadMessagesAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+    public async IAsyncEnumerable<RawMessage> ReadMessagesAsync([EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ProtocolEncoder encoder = new();
         
@@ -198,7 +200,7 @@ public sealed class Port : IAsyncDisposable
             char transmissionTypeChar = (char)transmissionInitialBuffer[^1];
             switch (transmissionTypeChar)
             {
-                case RawMessageJson.ControlCharStart or RawMessageAck.ControlCharStart or RawMessageEnq.ControlCharStart:
+                case RawMessageJson.ControlCharStart or RawMessageAck.ControlCharStart or RawMessageEnq.ControlCharStart or RawMessageError.ControlCharStart:
                 {
                     byte[] jsonBufferPlusTwoControlChars = new byte[transmissionSize + 2];
                     await stream.ReadExactlyAsync(jsonBufferPlusTwoControlChars, cancellationToken);
@@ -213,6 +215,7 @@ public sealed class Port : IAsyncDisposable
                         RawMessageJson.ControlCharStart => new RawMessageJson(messageId, transmissionSize, msgBytesMemory),
                         RawMessageAck.ControlCharStart => new RawMessageAck(messageId, transmissionSize, msgBytesMemory),
                         RawMessageEnq.ControlCharStart => new RawMessageEnq(messageId, transmissionSize, msgBytesMemory),
+                        RawMessageError.ControlCharStart => new RawMessageError(messageId, transmissionSize, msgBytesMemory),
                         _ => throw new(), // unpozibl
                     };
                     break;
@@ -312,11 +315,67 @@ public sealed class Port : IAsyncDisposable
     public record RawMessageAck(uint MessageId, int MessageSize, ReadOnlyMemory<byte> Bytes) : RawMessageText(MessageId, MessageSize, Bytes)
     {
         public const char ControlCharStart = ControlBytes.Acknowledge;
+
+        public bool IsMessageAck([NotNullWhen(true)] out uint? messageId)
+        {
+            if (Bytes.Span[..7].SequenceEqual("ackmsg="u8))
+            {
+                uint acknowledgedMessageId = uint.Parse(Bytes.Span[7..(7 + 8)]);
+                messageId = acknowledgedMessageId;
+                return true;
+            }
+
+            messageId = null;
+            return false;
+        }
+
+        public bool IsAckOfMessage(uint messageId) =>
+            Bytes.Span[..7].SequenceEqual("ackmsg="u8) &&
+            uint.Parse(Bytes.Span[7..])  == messageId;
+
+        public static RawMessageAck FromMessageAcknowledgement(uint acknowledgedMessageId)
+        {
+            byte[] bytes = new byte[7 + 8];
+            "ackmsg="u8.CopyTo(bytes);
+            Encoding.ASCII.GetBytes(
+                acknowledgedMessageId.ToString("X8"),
+                bytes.AsSpan(7..)
+            );
+
+            return new RawMessageAck(
+                MessageId: ++IncrementalSenderMessageId,
+                MessageSize: bytes.Length,
+                Bytes: bytes
+            );
+        }
     }
 
     public record RawMessageEnq(uint MessageId, int MessageSize, ReadOnlyMemory<byte> Bytes) : RawMessageText(MessageId, MessageSize, Bytes)
     {
         public const char ControlCharStart = ControlBytes.Enquiry;
+
+        public bool IsAckRequest()
+            => Bytes.Span.SequenceEqual("ack-req"u8);
+
+        public static RawMessageEnq CreateAckRequest()
+            => new(
+                MessageId: ++IncrementalSenderMessageId,
+                7,
+                "ack-req"u8.ToArray()
+            );
+    }
+
+    public record RawMessageError(uint MessageId, int MessageSize, ReadOnlyMemory<byte> Bytes) : RawMessageText(MessageId, MessageSize, Bytes)
+    {
+        public const char ControlCharStart = ControlBytes.Error;
+
+        public ErrorJson Deserialize()
+            => JsonSerializer.Deserialize(
+                Bytes.Span,
+                LocalJsonSerializerContext.Default.ErrorJson
+            );
+
+        public record struct ErrorJson(string Repr);
     }
 
     

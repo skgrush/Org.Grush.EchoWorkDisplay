@@ -8,9 +8,9 @@ public sealed class UniversalMediaReader : IAsyncDisposable
     
     private List<Session> _sessions = [];
 
-    private event EventHandler<IReadOnlyList<Session>>? _sessionsChanged;
+    private event EventHandler<UniversalMediaReader, IReadOnlyList<Session>>? _sessionsChanged;
     
-    public event EventHandler<IReadOnlyList<Session>> SessionsChanged
+    public event EventHandler<UniversalMediaReader, IReadOnlyList<Session>> SessionsChanged
     {
         add
         {

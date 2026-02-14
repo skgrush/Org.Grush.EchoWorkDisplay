@@ -73,8 +73,71 @@ public class ScreenManagerService(
             await WriteMessagesAsync(externalCancellationToken);
         };
 
+        commWriter.MessageReceived += async (sender, message) =>
+        {
+            if (message is Port.RawMessageError err)
+            {
+                var errorJson = err.Deserialize();
+                await Console.Error.WriteLineAsync(errorJson.Repr);
+                return;
+            }
+            else if (message is Port.RawMessageEnq enq)
+            {
+                if (enq.IsAckRequest())
+                {
+                    await commWriter.WriteToPortAsync(Port.RawMessageAck.FromMessageAcknowledgement(enq.MessageId),
+                        externalCancellationToken);
+                    Console.WriteLine("Wrote acknowledgement after requested by device");
+                    return;
+                }
+            }
+            else if (message is Port.RawMessageAck ack)
+            {
+                if (ack.IsMessageAck(out uint? id))
+                {
+                    Console.WriteLine("Received ACK of message {0:X}", id);
+                    return;
+                }
+            }
+
+            Console.Error.WriteLine("Received message from device of type {0} but not supported...", message.GetType().Name);
+        };
+
         microsoftPresenceService.LoopAsync(externalCancellationToken);
+        commWriter.LoopAsync(externalCancellationToken);
         await universal.Go();
+
+        await RequestAcknowledgement(externalCancellationToken);
+    }
+
+    public async Task<Port.RawMessageAck?> RequestAcknowledgement(CancellationToken externalCancellationToken)
+    {
+        TaskCompletionSource<Port.RawMessageAck?> tcs = new();
+
+        Port.RawMessageEnq ackRequest = Port.RawMessageEnq.CreateAckRequest();
+        
+        commWriter.MessageReceived += CommWriterOnMessageReceived;
+
+        externalCancellationToken.Register(() => tcs.TrySetCanceled(externalCancellationToken));
+        
+        await commWriter.WriteToPortAsync(ackRequest, externalCancellationToken);
+
+        try
+        {
+            return await tcs.Task;
+        }
+        finally
+        {
+            commWriter.MessageReceived -= CommWriterOnMessageReceived;
+        }
+
+        void CommWriterOnMessageReceived(StatusCommWriter sender, Port.RawMessage e)
+        {
+            if (e is Port.RawMessageAck ack && ack.IsAckOfMessage(ackRequest.MessageId))
+            {
+                tcs.TrySetResult(ack);
+            }
+        }
     }
 
     private async Task WriteMessagesAsync(CancellationToken currentCancellationToken)

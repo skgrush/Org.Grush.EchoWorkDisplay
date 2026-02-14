@@ -7,4 +7,5 @@ namespace Org.Grush.EchoWorkDisplay;
 [JsonSerializable(typeof(EnumeratedSerialPort))]
 [JsonSerializable(typeof(EnumeratedSerialPort[]))]
 [JsonSerializable(typeof(PiPicoMessages.JsonBase))]
+[JsonSerializable(typeof(Port.RawMessageError.ErrorJson))]
 public partial class LocalJsonSerializerContext : JsonSerializerContext;

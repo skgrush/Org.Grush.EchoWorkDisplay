@@ -25,7 +25,7 @@ public sealed class GlobalMediaReader : IAsyncDisposable
 
     public IMediaPropertiesProxy? CurrentMediaProperties => CurrentMedia;
 
-    public event EventHandler<IMediaPropertiesProxy?>? MediaPropertiesChanged; 
+    public event EventHandler<GlobalMediaReader, IMediaPropertiesProxy?>? MediaPropertiesChanged; 
 
     private GlobalMediaReader(GlobalSystemMediaTransportControlsSessionManager sessionManager)
     {

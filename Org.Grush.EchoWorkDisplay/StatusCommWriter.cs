@@ -12,10 +12,13 @@ public sealed class StatusCommWriter(Action<string> log, Config config) : IAsync
     
     public const string RaspberryPiFoundationVendorId = "2E8A";
     
+    public event EventHandler<StatusCommWriter, Port.RawMessage>? MessageReceived;
+    
     private Port? Port { get; set; }
 
     public async Task<bool> RefreshPortAsync(CancellationToken cancellationToken = default)
         => await RefreshPortAsync(true, cancellationToken);
+
 
     private async Task<bool> RefreshPortAsync(bool doLock, CancellationToken cancellationToken)
     {
@@ -76,6 +79,19 @@ public sealed class StatusCommWriter(Action<string> log, Config config) : IAsync
         serialPort.DtrEnable = piPort.SupportsDTRDSR;
 
         return new(serialPort, piPort);
+    }
+
+    public async void LoopAsync(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            await WaitForPortRefreshAsync(cancellationToken);
+
+            await foreach (var rawMsg in Port!.ReadMessagesAsync(cancellationToken))
+            {
+                MessageReceived?.Invoke(this, rawMsg);
+            }
+        }
     }
 
     public async Task<long> WriteToPortAsync(Port.RawMessage message, CancellationToken cancellationToken)
@@ -177,16 +193,6 @@ internal static class SerialPortEnumerator
 /// </summary>
 /// <seealso href="https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-serialport"/>
 public record EnumeratedSerialPort(
-    // string Caption,
-    // string Description,
-    // string DeviceID,
-    // int MaxBaudRate,
-    // string Name, // expected to be same as Caption
-    // string PNPDeviceID,
-    // int Availability, // TODO enum?
-    // bool OSAutoDiscovered,
-    // string ProviderType,
-
     UInt16 Availability,
     bool Binary,
     IReadOnlyList<UInt16>? Capabilities,

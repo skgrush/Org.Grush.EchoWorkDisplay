@@ -73,7 +73,7 @@ public partial class MicrosoftPresenceService(Config config, HashAlgorithm secur
         }
     } = PresenceDescription.FromError("Not initialized");
     
-    public event EventHandler<PresenceDescription>? PresenceChanged;
+    public event EventHandler<MicrosoftPresenceService, PresenceDescription>? PresenceChanged;
     
     private (GraphServiceClient Client, string CredentialsHash)? GraphClient { get; set; }
 
