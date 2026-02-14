@@ -1,11 +1,12 @@
-from typing import NoReturn
-
-from json import loads as json_loads
+import typing
 
 from machine import Pin,SPI,PWM
 import framebuf
 import sys
 import uctypes
+import json
+
+from raw_messages import RawMessage, RawMessageError, RawMessageText, RawMessageAck
 
 BL = 13
 DC = 8
@@ -185,6 +186,8 @@ class LcdManager(LCD_2inch):
         self.__logo()
         
         self.show()
+        
+        self.loop()
     
     
     def __logo(self):
@@ -231,15 +234,18 @@ class LcdManager(LCD_2inch):
         self.blit(fb, x_pos, y_pos)
         
         self.show()
-        
-        self.loop()
-    
+
     def loop(self):
         while True:
             try:
                 self.wait_for_message()
             except UnexpectedByte:
-                self._read_until_char(b'\x04') # read until we find an EOT char
+                self._read_until_char(b'\x04')
+                # read until we find an EOT char
+            except Exception as e:
+                # uncaught exception, so log it
+                if e is not self.__justShownError:
+                    self._error(e) # maybe dangerous?
     
     def wait_for_message(self):
         first_byte = self._read_bytes_from_stdin(1)
@@ -276,25 +282,42 @@ class LcdManager(LCD_2inch):
             self._read_json(hex_msg_identifier, byte_length)
         elif message_start_char == b'\x0E':
             self._read_shift_out(hex_msg_identifier, byte_length)
-        
-        
+        else:
+            self._error(UnexpectedByte(message_start_char, f"Expected message start byte {message_start_char}"))
+
     def _read_ack(self, hex_msg_identifier: bytes, byte_length: int):
+        message_body = self._read_bytes_from_stdin(byte_length)
+
+        finalchr = self._read_bytes_from_stdin(1)
+        if finalchr is not b'\x0F':
+            self._error(UnexpectedByte(finalchr, "Expected final byte"))
+        
         raise NotImplementedError("ACK not implemented")
     
     def _read_enq(self, hex_msg_identifier: bytes, byte_length: int):
+        message_body = self._read_bytes_from_stdin(byte_length)
+
+        finalchr = self._read_bytes_from_stdin(1)
+        if finalchr is not b'\x0F':
+            self._error(UnexpectedByte(finalchr, "Expected final byte"))
+            
+        msg_id = int(hex_msg_identifier, 16)
+        if message_body.startswith(b'ack-req'):
+            self._send_message(RawMessageAck.from_message_acknowledgement(msg_id))
+            return
+        
         raise NotImplementedError("ENQ not implemented")
     
     def _read_json(self, hex_msg_identifier: bytes, byte_length: int):
-        message_body = sys.stdin.buffer.read(byte_length)
+        message_body = self._read_bytes_from_stdin(byte_length)
 
         finalchr = self._read_bytes_from_stdin(1)
         if finalchr is not b'\x0F':
             self._error(UnexpectedByte(finalchr, "Expected final byte"))
 
-        json_msg = json_loads(message_body)
+        json_msg = json.loads(message_body)
 
-        
-
+        raise NotImplementedError()
         # TODO
         
     def _read_shift_out(self, hex_msg_identifier: bytes, byte_length: int):
@@ -313,10 +336,17 @@ class LcdManager(LCD_2inch):
         if type_of_transmission.startswith("bitmap?"):
             return self.show_bitmap_message(type_of_transmission, message_body)
         
+        else:
+            return self._error(NotImplementedError(f"Unknown transmission type '{type_of_transmission}'"))
+            
         return
         # TODO
+    
+    __justShownError: typing.Union[None, Exception] = None
 
-    def _error(self, err: Exception) -> NoReturn:
+    def _error(self, err: Exception) -> typing.NoReturn:
+        
+        self._justShownError = err
         
         self.__logo()
         
@@ -333,13 +363,19 @@ class LcdManager(LCD_2inch):
             
             char_idx += len(line)
             line_y += 8
-        
-        # TODO send to PC
-        
+
+        self._send_message(
+            RawMessageError.from_error(err)
+        )
+
         self.show()
         
         raise err
-        
+    
+    @staticmethod
+    def _send_message(msg: RawMessage):
+        msg.stream_bytes(sys.stdout.buffer)
+
     @staticmethod
     def _read_bytes_from_stdin(n: int) -> bytes:
         return sys.stdin.buffer.read(n)
