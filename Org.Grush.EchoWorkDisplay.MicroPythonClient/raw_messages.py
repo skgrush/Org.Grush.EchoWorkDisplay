@@ -1,11 +1,15 @@
 import typing
+from dataclasses import dataclass
 from typing import NamedTuple
 
-from json import dumps
+import framebuf
+import uctypes
+import json
 
 __incrementalClientMessageId = 1
 
-class RawMessage(NamedTuple):
+@dataclass
+class RawMessage:
     MessageId: int
     MessageSize: int
 
@@ -38,25 +42,24 @@ class RawMessage(NamedTuple):
         )
         stream.flush()
 
+@dataclass
 class RawMessageText(RawMessage):
-    MessageId: int
-    MessageSize: int
-    
     Bytes: bytes
     
     ControlCharStart: bytes
     
-    def __init__(self, msg: bytes):
-        control_char_start = self.get_control_char_start()
+    @classmethod
+    def from_message(cls, msg: bytes):
+        control_char_start = cls.get_control_char_start()
         assert len(control_char_start) is 1
         
         global __incrementalClientMessageId
-        super().__init__("RawMessageText", fields=[
-            ++__incrementalClientMessageId,
-            len(msg),
-            msg,
-            control_char_start
-        ])
+        return cls(
+            MessageId=++__incrementalClientMessageId,
+            MessageSize=len(msg),
+            Bytes=msg,
+            ControlCharStart=control_char_start
+        )
     
     @classmethod
     def get_control_char_start(cls):
@@ -74,15 +77,46 @@ class RawMessageText(RawMessage):
 
 
 class RawMessageJson(RawMessageText):
-    MessageId: int
-    MessageSize: int
-    Bytes: bytes
-    
-    ControlCharStart: bytes
+
+    def read_body(self) -> typing.Union[BaseJsonBody, None]:
+        j = json.loads(self.Bytes)
+        
+        if type(j) is not dict:
+            return None
+        msg_type = j.get("$MessageType")
+        if msg_type is None:
+            return None
+        
+        del j["$MessageType"]
+        j["MessageType"] = msg_type
+        
+        if msg_type is "NoMediaMessage":
+            return RawMessageJson.NoMediaMessage(**j)
+        if msg_type is "ButtonPress":
+            return RawMessageJson.ButtonPress(**j)
+        
+        return None
     
     @classmethod
     def get_control_char_start(cls):
         return b'\x02'
+    
+    @dataclass
+    class BaseJsonBody:
+        MessageType: str
+        
+        def to_message(self) -> RawMessageJson:
+            return RawMessageJson(bytes(json.dumps(self), 'utf8'))
+
+    @dataclass
+    class NoMediaMessage(BaseJsonBody):
+        MessageType: typing.Literal["NoMediaMessage"]
+    @dataclass
+    class ButtonPress(BaseJsonBody):
+        MessageType: typing.Literal["ButtonPress"]
+
+        ButtonNumber: int
+        State: int
 
 class RawMessageAck(RawMessageText):
     MessageId: int
@@ -126,10 +160,71 @@ class RawMessageError(RawMessageText):
 
     @staticmethod
     def from_error(err: BaseException) -> RawMessageError:
-        msg = dumps({
+        msg = json.dumps({
             'Repr': repr(err),
             ## actually traces are probably bad in MicroPython aren't they!
             # 'trace': traceback.format_exception(None, err, err.__traceback__),
         })
         
         return RawMessageError(bytes(msg, 'utf-8'))
+
+
+
+
+BITMAP_MSG_FMT = {
+    "sk_color_type": (0 | uctypes.ARRAY, 16 | uctypes.UINT8),
+    "x_position": (16 | uctypes.BIG_ENDIAN | uctypes.UINT16),
+    "y_position": (18 | uctypes.BIG_ENDIAN | uctypes.UINT16),
+    "width": (20 | uctypes.BIG_ENDIAN | uctypes.UINT16),
+    "height": (22 | uctypes.BIG_ENDIAN | uctypes.UINT16),
+    "RESERVED": (24 | uctypes.ARRAY, 8 | uctypes.UINT8),
+}
+
+@dataclass
+class DrawBitmapMessage(RawMessage):
+    SKColor: bytes
+    XPosition: int
+    YPosition: int
+    Width: int
+    Height: int
+    
+    Buffer: bytes
+    
+    def to_framebuffer(self):
+        if self.SKColor is not b'Rgb565':
+            raise NotImplementedError(f"sk_color must be Rgb565 but got {self.SKColor}")
+        
+        if self.Width * self.Height * 2 > len(self.Buffer):
+            raise RuntimeError(f"width and height ({self.Width}x{self.Height}) exceed buffered pixel count ({len(self.Buffer) / 2}")
+
+        return framebuf.FrameBuffer(self.Buffer, self.Width, self.Height, framebuf.RGB565)
+
+
+    @classmethod
+    def from_message(cls, type_of_transmission: bytes, buffer: bytes):
+        query_params = dict(
+            tuple(qp.split("="))
+            for qp in
+            type_of_transmission.split('?', 1)[1]
+            .split('&')
+        )
+
+        if query_params['version'] is not '1':
+            raise RuntimeError(f"bitmap version must be 1 but got {query_params['version']}")
+
+        if len(type_of_transmission) is not 32:
+            raise RuntimeError(f"type_of_transmission must be 32 but got {len(type_of_transmission)}")
+
+        header = uctypes.struct(uctypes.addressof(buffer), BITMAP_MSG_FMT)
+
+        global __incrementalClientMessageId
+        return DrawBitmapMessage(
+            MessageId=++__incrementalClientMessageId,
+            MessageSize=len(buffer) + 32 + 1,
+            SKColor=header.sk_color_type.rstrip(b'\x00'),
+            XPosition=header.x_position,
+            YPosition=header.y_position,
+            Width=header.width,
+            Height=header.height,
+            Buffer=buffer
+        )

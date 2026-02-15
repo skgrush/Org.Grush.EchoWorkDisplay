@@ -16,6 +16,7 @@ public static class PiPicoMessages
     
     [JsonPolymorphic(TypeDiscriminatorPropertyName = "$MessageType")]
     [JsonDerivedType(typeof(NoMediaMessage), nameof(NoMediaMessage))]
+    [JsonDerivedType(typeof(ButtonPress), nameof(ButtonPress))]
     // [JsonDerivedType(typeof(MediaMetadataChanged), nameof(MediaMetadataChanged))]
     public abstract record JsonBase()
     {
@@ -23,6 +24,17 @@ public static class PiPicoMessages
         public abstract string MessageType { get; }
         
         public abstract Port.RawMessage ToRawMessage();
+    }
+
+    public record ButtonPress(
+        uint ButtonNumber,
+        byte State
+    ) : JsonBase
+    {
+        public override string MessageType => nameof(ButtonPress);
+
+        public override Port.RawMessage ToRawMessage()
+            => throw new NotImplementedException();
     }
 
     public record DrawBitmap(
