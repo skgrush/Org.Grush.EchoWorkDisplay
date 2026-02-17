@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Text;
 using System.Text.Json.Serialization;
-using Windows.Media.Control;
+using Org.Grush.EchoWorkDisplay.Common;
 using SkiaSharp;
 
 namespace Org.Grush.EchoWorkDisplay;
@@ -118,7 +118,7 @@ public static class PiPicoMessages
         SkiaSharp.SKBitmap Bitmap,
         SkiaSharp.SKPointI Position,
         [property:JsonIgnore]
-        GlobalSystemMediaTransportControlsSessionMediaProperties? MediaProperties = null
+        IMediaProperties? MediaProperties = null
     ) : DrawBitmap(Bitmap, Position), IMediaMessage
     {
         

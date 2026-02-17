@@ -1,4 +1,7 @@
 <Solution>
+  <Project Path="Org.Grush.EchoWorkDisplay.Apple/Org.Grush.EchoWorkDisplay.Apple.csproj" />
+  <Project Path="Org.Grush.EchoWorkDisplay.Common/Org.Grush.EchoWorkDisplay.Common.csproj" />
   <Project Path="Org.Grush.EchoWorkDisplay.MicroPythonClient/Org.Grush.EchoWorkDisplay.MicroPythonClient.csproj" />
+  <Project Path="Org.Grush.EchoWorkDisplay.Windows/Org.Grush.EchoWorkDisplay.Windows.csproj" />
   <Project Path="Org.Grush.EchoWorkDisplay/Org.Grush.EchoWorkDisplay.csproj" />
 </Solution>

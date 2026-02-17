@@ -1,13 +1,9 @@
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.RegularExpressions;
-using Windows.Media.Control;
-using Windows.Storage.Streams;
 using JetBrains.Annotations;
+using Org.Grush.EchoWorkDisplay.Common;
 using SkiaSharp;
-using Buffer = Windows.Storage.Streams.Buffer;
 
 namespace Org.Grush.EchoWorkDisplay;
 
@@ -143,7 +139,7 @@ public class ScreenRenderer(Config config)
     
     [MustDisposeResource]
     public async Task<SKBitmap> RenderMediaScreen(
-        GlobalSystemMediaTransportControlsSessionMediaProperties mediaProperties,
+        IMediaProperties mediaProperties,
         int width,
         int height,
         CancellationToken cancellationToken
@@ -158,7 +154,7 @@ public class ScreenRenderer(Config config)
         
         using SKImage? thumbImage = config._FeasibleToDrawThumbnail
             ? null
-            : await ReadThumbnail(mediaProperties.Thumbnail, cancellationToken);
+            : await ReadThumbnail(mediaProperties, cancellationToken);
         if (thumbImage is not null)
         {
             // TODO: recalculate bg and fg colors
@@ -415,32 +411,22 @@ public class ScreenRenderer(Config config)
 
     [MustDisposeResource]
     public async Task<SKImage?> ReadThumbnail(
-        IRandomAccessStreamReference? thumb,
+        IMediaProperties mediaProps,
         CancellationToken cancellationToken
     )
     {
-        if (thumb is null)
+        var thumbStream = await mediaProps.GetThumbnailStream(cancellationToken);
+        
+        if (thumbStream is null)
             return null;
         
-        using var t = await thumb.OpenReadAsync();
-        if (t.Size < 16 || !t.CanRead)
-            return null;
-
-        cancellationToken.ThrowIfCancellationRequested();
-        
-        Buffer buffer = new Buffer((uint)t.Size);
-
-        var asyncOperation = t.ReadAsync(buffer, (uint)t.Size, InputStreamOptions.None);
-        cancellationToken.Register(() => asyncOperation.Cancel());
-        await asyncOperation;
-        
-        return SKImage.FromEncodedData(buffer.AsStream());
+        return SKImage.FromEncodedData(thumbStream);
     }
 }
 
 public class IconDrawer
 {
-    private static readonly Dictionary<MicrosoftPresenceService.Availability, string> _nameCache = [];
+    private static readonly Dictionary<PresenceAvailability, string> _nameCache = [];
     
     private readonly SKPoint _center;
     private readonly float _lineWidth;
@@ -579,29 +565,29 @@ public class IconDrawer
         });
     }
     
-    public SKBitmap? GetIcon(MicrosoftPresenceService.Availability? availability)
+    public SKBitmap? GetIcon(PresenceAvailability? availability)
         => availability switch
         {
-            MicrosoftPresenceService.Availability.Available
+            PresenceAvailability.Available
                 => Available.Value,
-            MicrosoftPresenceService.Availability.Away or
-            MicrosoftPresenceService.Availability.BeRightBack
+            PresenceAvailability.Away or
+            PresenceAvailability.BeRightBack
                 => Away.Value,
-            MicrosoftPresenceService.Availability.Busy or
-            MicrosoftPresenceService.Availability.InAMeeting or
-            MicrosoftPresenceService.Availability.InACall
+            PresenceAvailability.Busy or
+            PresenceAvailability.InAMeeting or
+            PresenceAvailability.InACall
                 => Busy.Value,
-            MicrosoftPresenceService.Availability.DoNotDisturb or
-            MicrosoftPresenceService.Availability.Presenting or
-            MicrosoftPresenceService.Availability.Focusing
+            PresenceAvailability.DoNotDisturb or
+            PresenceAvailability.Presenting or
+            PresenceAvailability.Focusing
                 => DoNotDisturb.Value,
-            MicrosoftPresenceService.Availability.Offline
+            PresenceAvailability.Offline
                 => Offline.Value,
             _ 
                 => null,
         };
 
-    public string GetAvailabilityName(MicrosoftPresenceService.Availability availability)
+    public string GetAvailabilityName(PresenceAvailability availability)
     {
         if (_nameCache.TryGetValue(availability, out var name))
             return name;

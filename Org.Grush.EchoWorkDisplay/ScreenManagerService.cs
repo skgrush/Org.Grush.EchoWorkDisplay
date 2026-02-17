@@ -1,3 +1,4 @@
+using Org.Grush.EchoWorkDisplay.Common;
 using SkiaSharp;
 
 namespace Org.Grush.EchoWorkDisplay;
@@ -16,8 +17,10 @@ public class ScreenManagerService(
     public async Task Initialize(CancellationToken externalCancellationToken)
     {
         CancellationTokenSource perSessionCancellation = new();
-        universal.SessionsChanged += async (sender, list) =>
+        universal.SessionsChanged += async (sender, e) =>
         {
+            var list = e.Sessions.ToArray();
+
             (var previousCancellation, perSessionCancellation) = (perSessionCancellation, CancellationTokenSource.CreateLinkedTokenSource(externalCancellationToken));
             var cancellationToken = perSessionCancellation.Token;
             cancellationToken.Register(() => CurrentMediaMessage?.Dispose());
@@ -156,7 +159,7 @@ public class ScreenManagerService(
             var mediaMessage = CurrentMediaMessage as PiPicoMessages.DrawMediaBitmap;
 
             float mediaPriority = config.GetPriority(mediaMessage?.MediaProperties);
-            float presencePriority = config.GetPriority(CurrentPresenceMessage.Description.Availability ?? MicrosoftPresenceService.Availability.PresenceUnknown);
+            float presencePriority = config.GetPriority(CurrentPresenceMessage.Description.Availability ?? PresenceAvailability.PresenceUnknown);
 
             await commWriter.WriteToPortAsync(
                 (

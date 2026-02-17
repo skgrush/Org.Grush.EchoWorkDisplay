@@ -2,6 +2,7 @@
 
 using System.Security.Cryptography;
 using Org.Grush.EchoWorkDisplay;
+using Org.Grush.EchoWorkDisplay.Common;
 
 // await using var mediaManager = await GlobalMediaReader.InitAsync();
 
@@ -10,6 +11,20 @@ HashAlgorithm hasher = SHA512.Create();
 Config config = Config.Deserialize(new FileInfo("./config.json"))
     ?? new();
 
+BaseSessionManagerBuilder managerBuilder;
+    
+     
+#if WINDOWS
+    managerBuilder = new Org.Grush.EchoWorkDisplay.Windows.WindowsSessionManagerBuilder();
+#elif MACCATALYST || MACOS
+    await using var platformManager = new ApplePlatformManager();
+
+    managerBuilder = platformManager.SessionManagerBuilder;
+#else
+    managerBuilder = ((Func<BaseSessionManagerBuilder>)(() => throw new PlatformNotSupportedException()))();
+#endif
+    
+
 ScreenRenderer screenRenderer = new(config);
 
 MicrosoftPresenceService microsoftPresenceService = new(config, hasher);
@@ -17,7 +32,7 @@ MicrosoftPresenceService microsoftPresenceService = new(config, hasher);
 await using StatusCommWriter commWriter = new (Console.WriteLine, config);
 await commWriter.WaitForPortRefreshAsync(CancellationToken.None);
 
-await using UniversalMediaReader universal = new();
+await using UniversalMediaReader universal = new(managerBuilder);
 
 ScreenManagerService screenManagerService = new(
     config,

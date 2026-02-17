@@ -5,33 +5,19 @@ using Azure.Identity;
 using Azure.Identity.Broker;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
+using Org.Grush.EchoWorkDisplay.Common;
 
 namespace Org.Grush.EchoWorkDisplay;
 
 public partial class MicrosoftPresenceService(Config config, HashAlgorithm secureHash)
 {
-    public enum Availability
-    {
-        Presenting,
-        DoNotDisturb,
-        Focusing,
-        InACall,
-        InAMeeting,
-        Busy,
-        Offline,
-        BeRightBack,
-        Away,
-        Available,
-        PresenceUnknown
-    }
-    
     public record PresenceDescription(
         DateTimeOffset Timestamp,
         string? Error = null,
         string? SequenceNumber = null,
         string? OutOfOfficeMessage = null,
         string? StatusMessage = null,
-        Availability? Availability = null
+        PresenceAvailability? Availability = null
     )
     {
         public const string DefaultOutOfOfficeMessage = "Out of Office";
@@ -52,14 +38,14 @@ public partial class MicrosoftPresenceService(Config config, HashAlgorithm secur
                 Availability: ParseAvailability(presence.Availability)
             );
 
-        public static Availability? ParseAvailability(string? availability)
+        public static PresenceAvailability? ParseAvailability(string? availability)
         {
             if (availability is null)
                 return null;
 
-            return Enum.TryParse(availability, ignoreCase: true, out Availability availabilityEnum)
+            return Enum.TryParse(availability, ignoreCase: true, out PresenceAvailability availabilityEnum)
                 ? availabilityEnum
-                : MicrosoftPresenceService.Availability.PresenceUnknown;
+                : PresenceAvailability.PresenceUnknown;
         }
     }
 

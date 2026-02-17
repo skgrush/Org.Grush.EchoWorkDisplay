@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Windows.Media.Control;
+using Org.Grush.EchoWorkDisplay.Common;
 using SkiaSharp;
 
 namespace Org.Grush.EchoWorkDisplay;
@@ -39,7 +39,7 @@ public record Config(
     internal SKColor _TextColor =>
         SKColor.TryParse(FontColor, out var color) ? color : SKColors.White;
 
-    internal float GetPriority(MicrosoftPresenceService.Availability availability)
+    internal float GetPriority(PresenceAvailability availability)
     {
         string availStr = availability.ToString();
         if (StatusPriority is not null && StatusPriority.TryGetValue(availStr, out var priority))
@@ -48,10 +48,10 @@ public record Config(
         if (DefaultStatusPriority.TryGetValue(availStr, out priority))
             return priority;
         
-        return (float)MicrosoftPresenceService.Availability.PresenceUnknown;
+        return (float)PresenceAvailability.PresenceUnknown;
     }
 
-    internal float GetPriority(GlobalSystemMediaTransportControlsSessionMediaProperties? mediaProperties)
+    internal float GetPriority(IMediaProperties? mediaProperties)
     {
         if (mediaProperties is not null)
         {
@@ -93,9 +93,9 @@ public record Config(
         ];
     
     internal static readonly ImmutableDictionary<string, float> DefaultStatusPriority =
-        Enum.GetValues<MicrosoftPresenceService.Availability>()
+        Enum.GetValues<PresenceAvailability>()
             .Select(e => KeyValuePair.Create(e.ToString(), (float)e))
-            .Append(KeyValuePair.Create("Music:.*", (float)MicrosoftPresenceService.Availability.Busy - 0.5f))
+            .Append(KeyValuePair.Create("Music:.*", (float)PresenceAvailability.Busy - 0.5f))
             .ToImmutableDictionary();
     
     public static Config Deserialize(Stream stream)

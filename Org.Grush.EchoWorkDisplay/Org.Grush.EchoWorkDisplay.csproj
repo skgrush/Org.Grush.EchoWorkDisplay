@@ -1,17 +1,34 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+    
     <PropertyGroup>
         <OutputType>WinExe</OutputType>
-        <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
-        <TargetPlatformMinVersion>10.0.26100.0</TargetPlatformMinVersion>
+        <TargetFramework>net10.0</TargetFramework>
+        <RuntimeIdentifiers>win-x64;osx-arm64</RuntimeIdentifiers>
         <ImplicitUsings>enable</ImplicitUsings>
-        <EnableWindowsTargeting>true</EnableWindowsTargeting>
         <Nullable>enable</Nullable>
         <PublishAot>true</PublishAot>
         <InvariantGlobalization>true</InvariantGlobalization>
         <WarningsAsErrors>true</WarningsAsErrors>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks> <!-- TODO -->
     </PropertyGroup>
+
+
+    <PropertyGroup
+            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'"
+    >
+        <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+        <TargetPlatformMinVersion>10.0.26100.0</TargetPlatformMinVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    </PropertyGroup>
+    
+    <PropertyGroup
+            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'"
+    >
+        <Platform></Platform>
+    </PropertyGroup>
+    
 
     <ItemGroup>
       <PackageReference Include="Azure.Identity" Version="1.17.1" />
@@ -21,6 +38,19 @@
       <PackageReference Include="SkiaSharp" Version="3.119.1" />
       <PackageReference Include="System.IO.Ports" Version="10.0.2" />
       <PackageReference Include="System.Management" Version="10.0.2" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Org.Grush.EchoWorkDisplay.Common\Org.Grush.EchoWorkDisplay.Common.csproj" />
+        
+      <ProjectReference
+              Include="../Org.Grush.EchoWorkDisplay.Windows/Org.Grush.EchoWorkDisplay.Windows.csproj"
+              Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'"
+      />
+      <ProjectReference
+          Include="../Org.Grush.EchoWorkDisplay.Apple/Org.Grush.EchoWorkDisplay.Apple.csproj"
+          Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'"
+      />
     </ItemGroup>
 
 </Project>
