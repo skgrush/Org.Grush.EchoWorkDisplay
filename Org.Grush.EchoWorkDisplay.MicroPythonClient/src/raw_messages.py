@@ -4,19 +4,19 @@ try:
 except ImportError:
     import typings as typing
 
-
-from dataclasses import dataclass
-
 import framebuf
 import uctypes
 import json
 
 __incrementalClientMessageId = 1
 
-@dataclass
 class RawMessage:
     MessageId: int
     MessageSize: int
+    
+    def __init__(self, MessageId: int, MessageSize: int):
+        self.MessageId = MessageId
+        self.MessageSize = MessageSize
 
     def stream_bytes(self, stream: typing.BinaryIO):
         raise NotImplementedError()
@@ -45,13 +45,19 @@ class RawMessage:
             end_control +
             b'\x04'
         )
-        stream.flush()
+        # stream.flush()
 
-@dataclass
 class RawMessageText(RawMessage):
     Bytes: bytes
     
     ControlCharStart: bytes
+    
+    def __init__(self, MessageId: int, MessageSize: int, Bytes: bytes, ControlCharStart: bytes):
+        super().__init__(MessageId, MessageSize)
+        self.Bytes = Bytes
+        self.ControlCharStart = ControlCharStart
+        
+        
     
     @classmethod
     def from_message(cls, msg: bytes):
@@ -106,58 +112,57 @@ class RawMessageJson(RawMessageText):
     def get_control_char_start(cls):
         return b'\x02'
     
-    @dataclass
+    # @dataclass
     class BaseJsonBody:
         MessageType: str
         
         def to_message(self) -> RawMessageJson:
-            return RawMessageJson(bytes(json.dumps(self), 'utf8'))
+            return RawMessageJson.from_message(bytes(json.dumps(self.__dict__), 'utf8'))
 
-    @dataclass
+    # @dataclass
     class NoMediaMessage(BaseJsonBody):
         MessageType: typing.Literal["NoMediaMessage"]
-    @dataclass
+        
+        def __init__(self, MessageType: typing.Literal["NoMediaMessage"]):
+            assert MessageType is "NoMediaMessage"
+            self.MessageType = MessageType
+
+    # @dataclass
     class ButtonPress(BaseJsonBody):
         MessageType: typing.Literal["ButtonPress"]
 
         ButtonNumber: int
         State: int
+        
+        def __init__(self, MessageType: typing.Literal["ButtonPress"], ButtonNumber: int, State: int):
+            assert MessageType is "ButtonPress"
+            self.MessageType = MessageType
+            self.ButtonNumber = ButtonNumber
+            self.State = State
 
 class RawMessageAck(RawMessageText):
-    MessageId: int
-    MessageSize: int
-    
-    Bytes: bytes
-    
+
     @classmethod
     def get_control_char_start(cls):
         return b'\x06'
     
     @staticmethod
     def from_message_acknowledgement(acknowledged_message_id: int) -> RawMessageAck:
-        return RawMessageAck(
+        return RawMessageAck.from_message(
             bytes(f'ackmsg={acknowledged_message_id:0>8x}', 'utf8')
         )
 
 class RawMessageEnq(RawMessageText):
-    MessageId: int
-    MessageSize: int
-    
-    Bytes: bytes
-    
+
     @classmethod
     def get_control_char_start(cls):
         return b'\x06'
     
     @staticmethod
     def from_message_ack_request():
-        return RawMessageEnq(b'ack-req')
+        return RawMessageEnq.from_message(b'ack-req')
 
 class RawMessageError(RawMessageText):
-    MessageId: int
-    MessageSize: int
-    
-    Bytes: bytes
     
     @classmethod
     def get_control_char_start(cls):
@@ -171,7 +176,7 @@ class RawMessageError(RawMessageText):
             # 'trace': traceback.format_exception(None, err, err.__traceback__),
         })
         
-        return RawMessageError(bytes(msg, 'utf-8'))
+        return RawMessageError.from_message(bytes(msg, 'utf-8'))
 
 
 
@@ -185,7 +190,7 @@ BITMAP_MSG_FMT = {
     "RESERVED": (24 | uctypes.ARRAY, 8 | uctypes.UINT8),
 }
 
-@dataclass
+# @dataclass
 class DrawBitmapMessage(RawMessage):
     SKColor: bytes
     XPosition: int
@@ -194,6 +199,27 @@ class DrawBitmapMessage(RawMessage):
     Height: int
     
     Buffer: bytes
+    
+    def __init__(
+        self,
+        MessageId: int,
+        MessageSize: int,
+        SKColor: bytes,
+        XPosition: int,
+        YPosition: int,
+        Width: int,
+        Height: int,
+    
+        Buffer: bytes
+    ):
+        super().__init__(MessageId, MessageSize)
+        
+        self.SKColor = SKColor
+        self.XPosition = XPosition
+        self.YPosition = YPosition
+        self.Width = Width
+        self.Height = Height
+        self.Buffer = Buffer
     
     def to_framebuffer(self):
         if self.SKColor is not b'Rgb565':

@@ -1,10 +1,9 @@
-import enum
 
 import framebuf
 from machine import Pin, PWM, SPI
 
 
-class PinNumbers(enum.Enum):
+class PinNumbers:
     KEY0 = 15
     KEY1 = 17
     KEY2 = 2

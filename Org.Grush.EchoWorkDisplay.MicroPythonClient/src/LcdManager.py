@@ -54,18 +54,19 @@ class LcdManager(LCD_2inch):
                 MessageType="ButtonPress",
                 ButtonNumber=number,
                 State=pin.value()
-            )
+            ).to_message()
         )
 
     def __logo(self):
         self.fill(self.WHITE)
         color = self.BLUE # should be #143573
-        self.ellipse(18.25, 36, 13.5 + 4, 13.5 + 4, color, False, 0b0110)
-        self.ellipse(18.25, 36, 13.5 - 4, 13.5 - 4, self.WHITE, False, 0b0110)
-        self.ellipse(45.25, 36, 13.5 + 4, 13.5 + 4, color, False, 0b0110)
-        self.ellipse(45.25, 36, 13.5 - 4, 13.5 - 4, self.WHITE, False, 0b0110)
+        mult = 3
+        self.ellipse(mult*int(18.25), mult*36, mult*int(13.5 + 4), mult*int(13.5 + 4), color, True, 0b1100)
+        self.ellipse(mult*int(18.25), mult*36, mult*int(13.5 - 4), mult*int(13.5 - 4), self.WHITE, True, 0b1100)
+        self.ellipse(mult*int(45.25), mult*36, mult*int(13.5 + 4), mult*int(13.5 + 4), color, True, 0b1100)
+        self.ellipse(mult*int(45.25), mult*36, mult*int(13.5 - 4), mult*int(13.5 - 4), self.WHITE, True, 0b1100)
 
-        self.text("Hello, world!", 32 - 6 * 8, 51)
+        self.text("Hello, world!", mult*32, 232)
 
     def show_bitmap_message(self, msg: DrawBitmapMessage):
 
@@ -230,11 +231,11 @@ class LcdManager(LCD_2inch):
             if c == target_char:
                 return
 
-            told_len = sys.stdin.buffer.tell()
+            told = sys.stdin.buffer.read()
+            told_len = len(told)
             if told_len is 0:
                 continue
 
-            told = sys.stdin.buffer.read(told_len)
             target_match = told.find(target_char)
 
             if target_match is -1:
