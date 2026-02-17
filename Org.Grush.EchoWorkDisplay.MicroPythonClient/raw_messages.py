@@ -1,6 +1,11 @@
-import typing
+
+try:
+    import typing
+except ImportError:
+    import typings as typing
+
+
 from dataclasses import dataclass
-from typing import NamedTuple
 
 import framebuf
 import uctypes

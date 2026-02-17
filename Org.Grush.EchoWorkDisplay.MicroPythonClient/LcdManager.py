@@ -1,4 +1,8 @@
-import typing
+
+try:
+    import typing
+except ImportError:
+    import typings as typing
 
 import sys
 import json
