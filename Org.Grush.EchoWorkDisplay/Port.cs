@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Org.Grush.EchoWorkDisplay.Common;
 
 namespace Org.Grush.EchoWorkDisplay;
 
@@ -27,12 +28,12 @@ public static class ControlBytes
 public sealed class Port : IAsyncDisposable
 {
     private SerialPort? SerialPort { get; set; }
-    public EnumeratedSerialPort PortInfo { get; }
+    public IEnumeratedSerialPort PortInfo { get; }
 
     public bool IsOpen => SerialPort?.IsOpen ?? false;
     public bool IsDisposed => SerialPort is null;
 
-    public Port(SerialPort serialPort, EnumeratedSerialPort portInfo)
+    public Port(SerialPort serialPort, IEnumeratedSerialPort portInfo)
     {
         SerialPort = serialPort;
         PortInfo = portInfo;

@@ -1,84 +1,76 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
 using System.Security.Cryptography;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Org.Grush.EchoWorkDisplay;
-using Org.Grush.EchoWorkDisplay.Common;
+
+#if WINDOWS
+using Org.Grush.EchoWorkDisplay.Windows.PlatformGeneric;
+#elif MACCATALYST || MACOS || OSX
+using Org.Grush.EchoWorkDisplay.Apple.PlatformGeneric;
+#else
+using Org.Grush.EchoWorkDisplay.FallbackPlatformGeneric;
+#endif
+
 
 // await using var mediaManager = await GlobalMediaReader.InitAsync();
 
-HashAlgorithm hasher = SHA512.Create();
+var serviceCollection = new ServiceCollection()
+    .AddLogging(c => c.SetMinimumLevel(LogLevel.Trace))
+    .AddSingleton<ConfigProvider>()
+    .AddTransient<HashAlgorithm>(_ => SHA512.Create())
+    .AddPlatformServices()
+    .AddScoped<ScreenRenderer>()
+    .AddScoped<MicrosoftPresenceService>()
+    .AddScoped<StatusCommWriter>()
+    .AddScoped<UniversalMediaReader>()
+    .AddScoped<ScreenManagerService>()
+;
 
-Config config = Config.Deserialize(new FileInfo("./config.json"))
-    ?? new();
+// HashAlgorithm hasher = SHA512.Create();
+//
+// Config config = Config.Deserialize(new FileInfo("./config.json"))
+//     ?? new();
 
-BaseSessionManagerBuilder managerBuilder;
+// IPlatformManager platformManager =
+// #if WINDOWS
+//     new Org.Grush.EchoWorkDisplay.Windows.WindowsPlatformManager();
+// #elif MACCATALYST || MACOS || OSX
+//     new Org.Grush.EchoWorkDisplay.Apple.ApplePlatformManager();
+// #else
+//     ((Func<IPlatformManager>)(() => throw new PlatformNotSupportedException()))();
+// #endif
     
-     
-#if WINDOWS
-    managerBuilder = new Org.Grush.EchoWorkDisplay.Windows.WindowsSessionManagerBuilder();
-#elif MACCATALYST || MACOS
-    await using var platformManager = new ApplePlatformManager();
 
-    managerBuilder = platformManager.SessionManagerBuilder;
-#else
-    managerBuilder = ((Func<BaseSessionManagerBuilder>)(() => throw new PlatformNotSupportedException()))();
-#endif
-    
+// ScreenRenderer screenRenderer = new(config);
 
-ScreenRenderer screenRenderer = new(config);
+// MicrosoftPresenceService microsoftPresenceService = new(config, hasher);
 
-MicrosoftPresenceService microsoftPresenceService = new(config, hasher);
+// await using StatusCommWriter commWriter = new (Console.WriteLine, config, platformManager);
 
-await using StatusCommWriter commWriter = new (Console.WriteLine, config);
+await using var sp = serviceCollection.BuildServiceProvider();
+
+var commWriter = sp.GetRequiredService<StatusCommWriter>();
+var screenManagerService = sp.GetRequiredService<ScreenManagerService>();
+
 await commWriter.WaitForPortRefreshAsync(CancellationToken.None);
 
-await using UniversalMediaReader universal = new(managerBuilder);
+// await using UniversalMediaReader universal = new(platformManager.SessionManagerBuilder);
 
-ScreenManagerService screenManagerService = new(
-    config,
-    screenRenderer,
-    universal,
-    commWriter,
-    microsoftPresenceService
-);
+// ScreenManagerService screenManagerService = new(
+//     config,
+//     screenRenderer,
+//     universal,
+//     commWriter,
+//     microsoftPresenceService
+// );
 
 CancellationTokenSource loopCancellationTokenSource = new();
 
 await screenManagerService.Initialize(loopCancellationTokenSource.Token);
 
-// CancellationTokenSource perSessionCancellation = new();
-// universal.SessionsChanged += async (sender, list) =>
-// {
-//     (var previousCancellation, perSessionCancellation) = (perSessionCancellation, new CancellationTokenSource());
-//     var cancellationToken = perSessionCancellation.Token;
-//     await previousCancellation.CancelAsync();
-//     previousCancellation.Dispose();
-//     
-//     Console.WriteLine("\n\nSession change:");
-//     foreach (var session in list)
-//     {
-//         if (session.MediaProperties is null)
-//             Console.WriteLine("{0}: null", session.Id);
-//         else
-//             Console.WriteLine("{0}: {1}   by   {2}", session.Id, session.MediaProperties.Title, session.MediaProperties.Artist);
-//     }
-//     
-//     // TODO: choose session
-//     var chosenSession = list.ElementAtOrDefault(0);
-//     
-//     if (chosenSession?.MediaProperties is null)
-//     {
-//         await commWriter.WriteToPortAsync(new PiPicoMessages.NoMediaMessage().ToRawMessage(), cancellationToken);
-//         return;
-//     }
-//
-//     using var screenBitmap = await screenRenderer.RenderMediaScreen(chosenSession.MediaProperties, config.ScreenHardwareWidth, config.ScreenHardwareHeight, cancellationToken);
-//     var bitmapMessage = new PiPicoMessages.DrawBitmap(screenBitmap, SKPointI.Empty);
-//     await commWriter.WriteToPortAsync(bitmapMessage.ToRawMessage(), cancellationToken);
-// };
-//
-// await universal.Go();
-
+var loopLogger = sp.GetRequiredService<ILogger<Program>>();
 while (true)
 {
     try
@@ -89,6 +81,6 @@ while (true)
     }
     catch(Exception ex)
     {
-        Console.WriteLine(ex);
+        loopLogger.LogError(ex, "Error in main loop");
     }
 }

@@ -7,7 +7,7 @@ namespace Org.Grush.EchoWorkDisplay.Windows;
 public class WindowsMediaSessionManager : BaseMediaSessionManager
 {
     private readonly GlobalSystemMediaTransportControlsSessionManager _manager;
-    private readonly Lock _lock = new();
+    private readonly MyLittleSemaphore _lock = new(TimeSpan.FromMilliseconds(1));
     
     private readonly List<WindowsMediaSession> _sessions = [];
     
@@ -17,7 +17,7 @@ public class WindowsMediaSessionManager : BaseMediaSessionManager
     {
         get
         {
-            using var _ = _lock.EnterScope();
+            using var _ = _lock.GetLockOrThrow();
             return [.._sessions];
         }
     }
@@ -31,33 +31,27 @@ public class WindowsMediaSessionManager : BaseMediaSessionManager
 
     private async void ManagerOnSessionsChanged(GlobalSystemMediaTransportControlsSessionManager? sender, global::Windows.Media.Control.SessionsChangedEventArgs? args)
     {
-        _lock.Enter();
-        try
-        {
-            var sessions = _manager.GetSessions();
+        await using var _ = await _lock.WaitAsync(CancellationToken.None);
 
-            if (
-                _sessions.Count == sessions.Count &&
-                _sessions.Zip(sessions).All(pair => pair.First.Equals(pair.Second))
-            )
-                return;
+        var sessions = _manager.GetSessions();
 
-            foreach (var sess in _sessions)
-                await sess.DisposeAsync();
+        if (
+            _sessions.Count == sessions.Count &&
+            _sessions.Zip(sessions).All(pair => pair.First.Equals(pair.Second))
+        )
+            return;
+
+        foreach (var sess in _sessions)
+            await sess.DisposeAsync().ConfigureAwait(continueOnCapturedContext: false);
             
-            _sessions.Clear();
-            _sessions.AddRange(
-                sessions.Select(sess => new WindowsMediaSession(sess))
-            );
-            foreach (var sess in _sessions)
-                sess.MediaChanged += SessOnMediaChanged;
+        _sessions.Clear();
+        _sessions.AddRange(
+            sessions.Select(sess => new WindowsMediaSession(sess))
+        );
+        foreach (var sess in _sessions)
+            sess.MediaChanged += SessOnMediaChanged;
 
-            SessOnMediaChanged(null, null);
-        }
-        finally
-        {
-            _lock.Exit();
-        }
+        SessOnMediaChanged(null, null);
     }
 
     private void SessOnMediaChanged(BaseMediaSession? sender, BaseMediaSession? e)

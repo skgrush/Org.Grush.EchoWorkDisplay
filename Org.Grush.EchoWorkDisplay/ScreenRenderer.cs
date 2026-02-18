@@ -7,7 +7,7 @@ using SkiaSharp;
 
 namespace Org.Grush.EchoWorkDisplay;
 
-public class ScreenRenderer(Config config)
+public class ScreenRenderer(ConfigProvider configProvider)
 {
     public const double ItalicsAngle = 10;
     public const double ItalicsRadians = ItalicsAngle * Math.PI / 180;
@@ -16,11 +16,13 @@ public class ScreenRenderer(Config config)
     private static readonly ConcurrentDictionary<string, SKTypeface?> KnownFontFamilies = [];
     private static readonly ConcurrentDictionary<string, string> ResolvedCommaSeparatedFontFamilies = [];
 
-    private readonly IconDrawer _iconDrawer = new(
-        thumbSize: config._FeasibleToDrawThumbnail
-            ? Math.Min(config.MaxThumbnailHeight, config.MaxThumbnailWidth)
-            : 100
-    );
+    private readonly IconDrawer _iconDrawer =
+        configProvider.Config is {} config
+            ? new(
+                thumbSize: config._FeasibleToDrawThumbnail
+                ? Math.Min(config.MaxThumbnailHeight, config.MaxThumbnailWidth)
+                : 100
+            ) : null!;
 
 
     private static SKTypeface FindFontFamily(string commaSeparatedFontFamilies)
@@ -73,6 +75,7 @@ public class ScreenRenderer(Config config)
         CancellationToken cancellationToken
     )
     {
+        ref var config = ref configProvider.Config;
         
         SKColor backgroundColor = config._BackgroundColor;
         SKColor textColor = config._TextColor;
@@ -122,6 +125,7 @@ public class ScreenRenderer(Config config)
             
             if (subtextMessage is not null)
             {
+                config = ref configProvider.Config;
                 SKRectI bottomRectangle = new(
                     left: config.MarginSize,
                     top: statusRectangle.Left,
@@ -145,6 +149,8 @@ public class ScreenRenderer(Config config)
         CancellationToken cancellationToken
     )
     {
+        ref var config = ref configProvider.Config;
+
         SKColor backgroundColor = config._BackgroundColor;
         SKColor textColor = config._TextColor;
         SKColor? textStrokeColor;
@@ -167,6 +173,7 @@ public class ScreenRenderer(Config config)
         
         if (thumbImage is not null)
         {
+            config = ref configProvider.Config;
             SKRectI thumbnailDestinationRectangle = new(
                 left: config.MarginSize,
                 top: config.MarginSize,
@@ -182,6 +189,7 @@ public class ScreenRenderer(Config config)
             );
         }
         
+        config = ref configProvider.Config;
         // TODO: currently assuming thumbnail is always drawn, maybe adjust if not
         SKRectI artistRectangle = new(
             config.MaxThumbnailWidth + 2 * config.MarginSize,
@@ -225,6 +233,7 @@ public class ScreenRenderer(Config config)
         bool italic = false
     )
     {
+        ref var config = ref configProvider.Config;
         using var font = new SKFont(
             typeface: typeface,
             size: config.FontSize,

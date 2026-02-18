@@ -7,6 +7,64 @@ using SkiaSharp;
 
 namespace Org.Grush.EchoWorkDisplay;
 
+public class ConfigProvider
+{
+    private readonly SemaphoreSlim _semaphore = new(0, 1);
+    private FileInfo? _configFileInfo = null;
+    private Config? _config = null;
+
+    public ref Config Config
+    {
+        get
+        {
+            _semaphore.Wait();
+            try
+            {
+                return ref _config;
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
+        }
+    }
+
+    public async Task InitializeAsync(FileInfo configFile)
+    {
+        if (_configFileInfo is not null)
+            throw new  InvalidOperationException("Already initialized");
+        _configFileInfo = configFile;
+
+        await RefreshConfigAsync(prelocked: true);
+    }
+    
+    private async Task RefreshConfigAsync(bool prelocked)
+    {
+        if (!prelocked)
+            await _semaphore.WaitAsync();
+        else if (_semaphore.CurrentCount is not 0)
+            throw new InvalidOperationException("lock issue");
+
+        _config = null;
+        try
+        {
+            if (_configFileInfo?.Exists is not true)
+            {
+                _config = new Config();
+            }
+            else
+            {
+                _config = await Config.Deserialize(_configFileInfo);
+            }
+        }
+        finally
+        {
+            if (_config is not null)
+                _semaphore.Release();
+        }
+    }
+}
+
 public record Config(
     int BaudRate = 115_200,
     int ComPortSearchDelayMilliseconds = 1_000,
@@ -98,17 +156,17 @@ public record Config(
             .Append(KeyValuePair.Create("Music:.*", (float)PresenceAvailability.Busy - 0.5f))
             .ToImmutableDictionary();
     
-    public static Config Deserialize(Stream stream)
-        => JsonSerializer.Deserialize(stream, LocalJsonSerializerContext.Default.Config)!;
+    public static ValueTask<Config?> Deserialize(Stream stream)
+        => JsonSerializer.DeserializeAsync(stream, LocalJsonSerializerContext.Default.Config);
 
-    public static Config? Deserialize(FileInfo file)
+    public static async Task<Config?> Deserialize(FileInfo file)
     {
         if (!file.Exists)
             return null;
 
-        using var stream = file.OpenRead();
+        await using var stream = file.OpenRead();
         
-        return Deserialize(stream);
+        return await Deserialize(stream);
     }
 
     private void Validate()

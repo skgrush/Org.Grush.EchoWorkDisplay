@@ -1,14 +1,16 @@
+using Microsoft.Extensions.Logging;
 using Org.Grush.EchoWorkDisplay.Common;
 using SkiaSharp;
 
 namespace Org.Grush.EchoWorkDisplay;
 
 public class ScreenManagerService(
-    Config config,
+    ConfigProvider configProvider,
     ScreenRenderer screenRenderer,
     UniversalMediaReader universal,
     StatusCommWriter commWriter,
-    MicrosoftPresenceService microsoftPresenceService
+    MicrosoftPresenceService microsoftPresenceService,
+    ILogger<ScreenManagerService> logger
 )
 {
     private PiPicoMessages.IMediaMessage? CurrentMediaMessage { get; set; }
@@ -17,6 +19,8 @@ public class ScreenManagerService(
     public async Task Initialize(CancellationToken externalCancellationToken)
     {
         CancellationTokenSource perSessionCancellation = new();
+        
+        await universal.Go();
         universal.SessionsChanged += async (sender, e) =>
         {
             var list = e.Sessions.ToArray();
@@ -27,18 +31,19 @@ public class ScreenManagerService(
             await previousCancellation.CancelAsync();
             previousCancellation.Dispose();
 
-            if (!config.ShowPlayingMedia)
+            if (!configProvider.Config.ShowPlayingMedia)
             {
                 CurrentMediaMessage = new PiPicoMessages.NoMediaMessage();
             }
     
+            using var logScope = logger.BeginScope("Media session change:");
             Console.WriteLine("\n\nSession change:");
             foreach (var session in list)
             {
                 if (session.MediaProperties is null)
-                    Console.WriteLine("{0}: null", session.Id);
+                    logger.LogInformation("Session {sessionId}: null", session.Id);
                 else
-                    Console.WriteLine("{0}: {1}   by   {2}", session.Id, session.MediaProperties.Title, session.MediaProperties.Artist);
+                    logger.LogInformation("Session {sessionId}: {title}   by   {artist}", session.Id, session.MediaProperties.Title, session.MediaProperties.Artist);
             }
     
             // TODO: choose session
@@ -55,6 +60,7 @@ public class ScreenManagerService(
                 return;
             }
 
+            ref var config = ref configProvider.Config;
             var screenBitmap = await screenRenderer.RenderMediaScreen(chosenSession.MediaProperties, config.ScreenHardwareWidth, config.ScreenHardwareHeight, cancellationToken);
             var bitmapMessage = new PiPicoMessages.DrawMediaBitmap(screenBitmap, SKPointI.Empty, chosenSession.MediaProperties);
             CurrentMediaMessage = bitmapMessage;
@@ -66,6 +72,7 @@ public class ScreenManagerService(
         // CancellationTokenSource perPresenceCancellation = new();
         microsoftPresenceService.PresenceChanged += async (sender, presenceDescription) =>
         {
+            ref var config = ref configProvider.Config;
             var screenBitmap = await screenRenderer.RenderPresenceScreen(presenceDescription, config.ScreenHardwareWidth, config.ScreenHardwareHeight, externalCancellationToken);
             
             CurrentPresenceMessage =
@@ -108,7 +115,6 @@ public class ScreenManagerService(
 
         microsoftPresenceService.LoopAsync(externalCancellationToken);
         commWriter.LoopAsync(externalCancellationToken);
-        await universal.Go();
 
         await RequestAcknowledgement(externalCancellationToken);
     }
@@ -157,6 +163,8 @@ public class ScreenManagerService(
         {
             // both are present, decide between them!
             var mediaMessage = CurrentMediaMessage as PiPicoMessages.DrawMediaBitmap;
+
+            ref var config = ref configProvider.Config;
 
             float mediaPriority = config.GetPriority(mediaMessage?.MediaProperties);
             float presencePriority = config.GetPriority(CurrentPresenceMessage.Description.Availability ?? PresenceAvailability.PresenceUnknown);

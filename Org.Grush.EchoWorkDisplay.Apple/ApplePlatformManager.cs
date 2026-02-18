@@ -1,38 +1,23 @@
+using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Org.Grush.EchoWorkDisplay.Common;
 
 namespace Org.Grush.EchoWorkDisplay.Apple;
 
-public sealed record AppleMediaProperties(
-    string? Artist,
-    string? AlbumTitle,
-    string? Title,
-    byte[]? Thumbnail
-) : IMediaProperties
-{
-    public static readonly AppleMediaProperties Default = new(null, null, null, null);
-    
-    public async Task<Stream?> GetThumbnailStream(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (Thumbnail is null)
-            return null;
 
-        return new MemoryStream(Thumbnail, writable: false);
-    }
-}
-
-public sealed class ApplePlatformManager : IAsyncDisposable
+internal sealed partial class ApplePlatformManager : IPlatformManager
 {
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly HttpClient _client = new();
-    
-    public AppleSessionManagerBuilder SessionManagerBuilder { get; }
 
-    public ApplePlatformManager()
+    public ApplePlatformManager(
+        ILogger<ApplePlatformManager> logger
+    )
     {
-        SessionManagerBuilder = new AppleSessionManagerBuilder(this);
-        
         ConsoleLoop();
     }
 
@@ -192,10 +177,149 @@ public sealed class ApplePlatformManager : IAsyncDisposable
             Console.Error.WriteLine(ex);
         }
     }
+    
+    public async Task<ImmutableList<IEnumeratedSerialPort>> GetSerialPortsAsync(CancellationToken cancellationToken)
+    {
+        IPListElement ele;
+
+        using (Process proc = new()
+               {
+                   StartInfo =
+                   {
+                       FileName = "/usr/sbin/ioreg",
+                       ArgumentList =
+                       {
+                           
+                           // "-p", "IOUSB", // specifies the IOUSB "plane"
+                           // "-l", // show all properties of everything
+                           "-k", "IOTTYBaseName",
+                           "-a", // output as PList
+                           "-t", // "show tree location of each subtree"
+                           "-r", // ignore other subtrees
+                           "-l", // full properties on visible nodes
+                       },
+                       CreateNoWindow = true,
+                       UseShellExecute = false,
+                       RedirectStandardOutput = true,
+                   },
+               })
+        {
+            await using ShimPListParser shim = new(cancellationToken);
+
+            proc.Start();
+
+            ele = await shim.ParseAsync(proc.StandardOutput.BaseStream);
+
+            await proc.WaitForExitAsync(cancellationToken);
+        }
+
+        var enumeration = ele switch
+        {
+            PListDict dict => EnumeratePortsOfIORegistryEntry(dict, []),
+            PListArray ary => ary.OfType<PListDict>().SelectMany(d => EnumeratePortsOfIORegistryEntry(d, [])),
+            _ => throw new NotSupportedException(),
+        };
+
+        return enumeration.Select(chain => chain.Port).ToImmutableList();
+    }
+
+    private record IOChain(
+        ImmutableList<IOChain.Ancestor> Ancestors,
+        IEnumeratedSerialPort Port
+    )
+    {
+        public record Ancestor(string IOObjectClass, string IORegistryEntryName);
+    }
+    
+    private IEnumerable<IOChain> EnumeratePortsOfIORegistryEntry(
+        PListDict dict,
+        ImmutableList<(IOChain.Ancestor Ancestor, PListDict Dict)> ancestors
+    )
+    {
+        string? ioObjectClass = dict.GetValueOrDefault("IOObjectClass")?.AsValuePrimitive<string>();
+        string? ioRegistryEntryName = dict.GetValueOrDefault("IORegistryEntryName")?.AsValuePrimitive<string>();
+        
+        if (ioObjectClass is null || ioRegistryEntryName is null)
+            yield break;
+
+        if (ioObjectClass is "IOSerialBSDClient")
+        {
+            (IOChain.Ancestor Ancestor, PListDict Dict) usbHostInterfaceParent = ancestors.Last();
+            if (
+                usbHostInterfaceParent.Dict
+                    .GetValueOrDefault("IOProviderClass")
+                    ?.AsValuePrimitive<string>()
+                is "IOUSBHostInterface"
+            )
+            {
+                (IOChain.Ancestor? Ancestor, PListDict? Dict) usbHostInterfaceGrandParent = default;
+                if (usbHostInterfaceParent != default)
+                    usbHostInterfaceGrandParent = ancestors.SkipLast(1).LastOrDefault();
+
+                AppleEnumeratedSerialPort port = new(
+                    VendorId: (UInt16)usbHostInterfaceParent.Dict["idVendor"].AsValuePrimitive<long>(),
+                    ProductId: (UInt16)usbHostInterfaceParent.Dict["idProduct"].AsValuePrimitive<long>(),
+                    UsbVendorName: usbHostInterfaceGrandParent.Dict?.GetValueOrDefault("USB Vendor Name")
+                        ?.AsValuePrimitive<string>(),
+                    UsbProductName: usbHostInterfaceGrandParent.Dict?.GetValueOrDefault("USB Product Name")
+                        ?.AsValuePrimitive<string>(),
+                    IoCallOutPath: dict.GetValueOrDefault("IOCalloutDevice")?.AsValuePrimitive<string>(),
+                    IoDialInPath: dict.GetValueOrDefault("IODialinDevice")?.AsValuePrimitive<string>(),
+                    IOTTYDevice: dict.GetValueOrDefault("IOTTYDevice")?.AsValuePrimitive<string>(),
+                    MaxBaudRate: null,
+                    SupportsRTSCTS: true,
+                    SupportsDTRDSR: true,
+                    UsbSerialNumber: usbHostInterfaceGrandParent.Dict?.GetValueOrDefault("USB Serial Number")
+                        ?.AsValuePrimitive<string>()
+                );
+
+                yield return new(
+                    [..ancestors.Select(pair => pair.Ancestor)],
+                    port
+                );
+            }
+            else
+            {
+                Console.WriteLine("Non-USB serial device, ignoring");
+            }
+        }
+        
+        if (!dict.TryGetValue("IORegistryEntryChildren", out var t))
+            yield break;
+
+        List<PListDict> children = t switch
+        {
+            PListArray pla => pla.OfType<PListDict>().ToList(),
+            PListDict d => [d],
+            _ => [],
+        };
+
+        var newAncestors = ancestors.Add(
+            (
+                Ancestor: new IOChain.Ancestor(ioObjectClass, ioRegistryEntryName),
+                dict
+            )
+        );
+        
+        foreach (var child in children)
+        {
+            var childEnumeration = EnumeratePortsOfIORegistryEntry(
+                child,
+                newAncestors
+            );
+            foreach (var childIoChain in childEnumeration)
+                yield return childIoChain;
+        }
+    }
 
     public ValueTask DisposeAsync()
     {
         _client.Dispose();
         return new(_cancellationTokenSource.CancelAsync());
     }
+
+    [GeneratedRegex("""
+                        ^"(?<PropName>[^"]+)" *= *(?<PropRawValue>.*)$
+                        """)]
+    private static partial Regex LineRe();
 }

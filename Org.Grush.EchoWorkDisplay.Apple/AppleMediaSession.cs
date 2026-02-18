@@ -2,7 +2,7 @@
 
 namespace Org.Grush.EchoWorkDisplay.Apple;
 
-public class AppleMediaSession : BaseMediaSession
+internal class AppleMediaSession : BaseMediaSession
 {
     protected virtual string? InnerId { get; set; }
 

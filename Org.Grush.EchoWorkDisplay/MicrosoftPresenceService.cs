@@ -3,13 +3,18 @@ using System.Security.Cryptography;
 using System.Text;
 using Azure.Identity;
 using Azure.Identity.Broker;
+using Microsoft.Extensions.Logging;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
 using Org.Grush.EchoWorkDisplay.Common;
 
 namespace Org.Grush.EchoWorkDisplay;
 
-public partial class MicrosoftPresenceService(Config config, HashAlgorithm secureHash)
+public partial class MicrosoftPresenceService(
+    ConfigProvider configProvider,
+    HashAlgorithm secureHash,
+    ILogger<MicrosoftPresenceService> logger
+)
 {
     public record PresenceDescription(
         DateTimeOffset Timestamp,
@@ -76,8 +81,8 @@ public partial class MicrosoftPresenceService(Config config, HashAlgorithm secur
 
                 await Task.Delay(
                     Presence.Error is null
-                        ? config.AzRefreshPeriodMilliseconds
-                        : 10 * config.AzRefreshPeriodMilliseconds,
+                        ? configProvider.Config.AzRefreshPeriodMilliseconds
+                        : 10 * configProvider.Config.AzRefreshPeriodMilliseconds,
                     cancellationToken
                 );
             }
@@ -87,8 +92,8 @@ public partial class MicrosoftPresenceService(Config config, HashAlgorithm secur
             }
             catch (Exception e)
             {
-                Console.WriteLine("Error looping presence: {0}", e);
-                await Task.Delay(10 * config.AzRefreshPeriodMilliseconds, cancellationToken);
+                logger.LogError(e, "Error looping presence");
+                await Task.Delay(10 * configProvider.Config.AzRefreshPeriodMilliseconds, cancellationToken);
             }
         }
     }
@@ -137,6 +142,8 @@ public partial class MicrosoftPresenceService(Config config, HashAlgorithm secur
 
     private async Task<GraphServiceClient?> AuthAsync(CancellationToken cancellationToken)
     {
+        ref var config = ref configProvider.Config;
+        
         var credsHash = HashStrings(config.AzClientId, config.AzTenantId);
         if (GraphClient?.CredentialsHash != credsHash)
         {

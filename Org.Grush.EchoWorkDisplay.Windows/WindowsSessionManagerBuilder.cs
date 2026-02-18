@@ -5,6 +5,11 @@ namespace Org.Grush.EchoWorkDisplay.Windows;
 
 public class WindowsSessionManagerBuilder : BaseSessionManagerBuilder
 {
+    public WindowsSessionManagerBuilder(WindowsPlatformManager platformManager)
+    {
+        
+    }
+    
     public override async Task<BaseMediaSessionManager> BuildManagerAsync()
     {
         var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();

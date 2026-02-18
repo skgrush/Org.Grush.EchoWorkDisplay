@@ -2,7 +2,7 @@ using Org.Grush.EchoWorkDisplay.Common;
 
 namespace Org.Grush.EchoWorkDisplay.Apple;
 
-public class AppleSessionManagerBuilder(ApplePlatformManager platformManager) : BaseSessionManagerBuilder
+internal class AppleSessionManagerBuilder(ApplePlatformManager platformManager) : BaseSessionManagerBuilder
 {
     public override async Task<BaseMediaSessionManager> BuildManagerAsync()
     {

@@ -2,7 +2,7 @@ using Org.Grush.EchoWorkDisplay.Common;
 
 namespace Org.Grush.EchoWorkDisplay.Apple;
 
-public class AppleMediaSessionManager : BaseMediaSessionManager
+internal class AppleMediaSessionManager : BaseMediaSessionManager
 {
     private readonly Lock _lock = new();
     private readonly AppleConsoleSession _consoleSession = new();
